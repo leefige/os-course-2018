@@ -62,10 +62,11 @@
         (gdb) p /x $eip
             $4 = 0xfff0
         (gdb) x/i 0xffff0
-            0xffff0:     ljmp   $0xf000,$0xe05b
-   ```
+            0xffff0:     ljmp   $0xf000,$0xe05b 
+    ```
+    
    说明此时$cs和$eip都有着恰当的值，而且此时再执行si，可以看到确实跳转到了0xe05b，也即执行了0xffff0处的ljmp，证明第一条指令无误：
-   ```gdb
+    ```gdb
         (gdb) si
             => 0xe05b:      add    %al,(%bx,%si)
     ```
@@ -75,7 +76,7 @@
 
 1. 将gdbinit恢复为初始状态，并增加`break *0x7c00`以设置0x7C00断点
 2. 使用`make debug`命令，可以看到如下结果，断点正常：
-    ```
+    ```gdb
         => 0x7c00:      cli
         Breakpoint 2, 0x00007c00 in ?? ()
     ```
@@ -102,16 +103,22 @@
 #### 自己找一个bootloader或内核中的代码位置，设置断点并进行测试
 
 - 在gdbinit文件中加入`break clock_init`，再进行调试，可以观测到这个断点：
-    ```
+    ```gdb
         => 0x100c6f <clock_init>:       push   %bp
         Breakpoint 3, clock_init () at kern/driver/clock.c:33
     ```
 
-### 1.3 
+### 1.3 分析bootloader进入保护模式的过程
 
-### 1.4 
+### 1.4 分析bootloader加载ELF格式的OS的过程
 
-### 1.5 
+### 1.5 实现函数调用堆栈跟踪函数
+
+### 1.6 完善中断初始化和处理
+
+### 1.x1 扩展练习 Challenge 1
+
+### 1.x2 扩展练习 Challenge 2
 
 ## 2. 标准答案分析
 
