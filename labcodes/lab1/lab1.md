@@ -46,8 +46,66 @@
 
 #### 问题2: 一个被系统认为是符合规范的硬盘主引导扇区的特征是什么？
 
-- 扇区的最后两个字节为0x55AA.
-### 1.2 
+- 扇区的最后两个字节为0x55AA，这从sign签名程序的功能即可看出。
+
+### 1.2 使用qemu执行并调试lab1中的软件
+
+#### 从CPU加电后执行的第一条指令开始，单步跟踪BIOS的执行
+1. 根据附录中所述，先在gdbinit中添加配置信息，以强制显示反汇编指令
+2. 使用`make debug`命令，启动gdb调试qemu，此时显示为`=> 0xfff0: add %al,(%bx,%si)`，这与实验指导中所述“这时gdb停在BIOS的第一条指令处：`0xffff0: ljmp $0xf000,$0xe05b`”不符。
+3. 在piazza上查阅相关问题后看到类似问题
+[为什么Lab1 练习2 “启动后第一条执行的指令“ $PC停留在0xFFF0而不是0xFFFF0](https://piazza.com/class/i5j09fnsl7k5x0?cid=991)指出，这是正常现象。同时自己观测寄存器和内存值，可见
+
+    ```gdb
+        (gdb) p /x $cs
+            $3 = 0xf000
+        (gdb) p /x $eip
+            $4 = 0xfff0
+        (gdb) x/i 0xffff0
+            0xffff0:     ljmp   $0xf000,$0xe05b
+   ```
+   说明此时$cs和$eip都有着恰当的值，而且此时再执行si，可以看到确实跳转到了0xe05b，也即执行了0xffff0处的ljmp，证明第一条指令无误：
+   ```gdb
+        (gdb) si
+            => 0xe05b:      add    %al,(%bx,%si)
+    ```
+4. 之后持续使用si即可查看BIOS中的各条指令
+
+#### 在初始化位置0x7c00设置实地址断点,测试断点正常
+
+1. 将gdbinit恢复为初始状态，并增加`break *0x7c00`以设置0x7C00断点
+2. 使用`make debug`命令，可以看到如下结果，断点正常：
+    ```
+        => 0x7c00:      cli
+        Breakpoint 2, 0x00007c00 in ?? ()
+    ```
+3. 需要指出的是，我在这里调试时遇到一个问题，表现为无法从gdbinit中设置断点，`make debug`后无法在断点处停止，且使用`info breakpoints`查看断点信息发现不存在断点。后来通过对lab1_answer执行`make debug`时发现报错“找不到cgdb”，于是安装cgdb，再次尝试发现可行，问题解决，结论为我自己的Ubuntu中的gdb和标准实验环境有差异，安装cgdb即可。
+
+#### 从0x7c00开始跟踪代码运行,将单步跟踪反汇编得到的代码与bootasm.S和 bootblock.asm进行比较
+
+1. 继续上一步的后续操作，使用`si`查看后续指令
+2. 得到的汇编指令如下（从0x7C00开始）：
+
+    ```asm
+        cli
+        cld
+        xor    %ax,%ax
+        mov    %ax,%ds
+        mov    %ax,%es
+        mov    %ax,%ss
+        in     $0x64,%al
+        test   $0x2,%al
+        ...
+    ```
+    这与反汇编得到的obj/bootblock.asm中`start`段代码吻合。其中`in     $0x64,%al`之后为`seta20.1`段中的指令，即设置A20 GATE。
+
+#### 自己找一个bootloader或内核中的代码位置，设置断点并进行测试
+
+- 在gdbinit文件中加入`break clock_init`，再进行调试，可以观测到这个断点：
+    ```
+        => 0x100c6f <clock_init>:       push   %bp
+        Breakpoint 3, clock_init () at kern/driver/clock.c:33
+    ```
 
 ### 1.3 
 
