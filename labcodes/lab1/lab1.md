@@ -27,16 +27,20 @@
         - -nostdlib: 在1中已经提及
         - -T tools/kernel.ld: 指定用链接脚本tools/kernel.ld替换掉主连接脚本
         - -o: 指定输出文件名
-    3. 使用`-m32`模式，利用`gcc`依次编译boot/目录下的bootasm.S, bootmain.c, sign.c，生成对应的可重定向文件。参数含义与1中类似。
-    4. 在`elf_i386`模式下使用`ld`链接生成bin/bootblock，即bootloader；由`'obj/bootblock.out' size: 488 bytes`可见'obj/bootblock.out'文件大小小于512字节，随后提示`build 512 bytes boot sector: 'bin/bootblock' success`，即bin/bootblock文件为第0个扇区中的主引导记录MBR。部分参数含义与2中类似，不一样的有：
+    3. 使用`-m32`模式，利用`gcc`汇编boot/目录下的bootasm.S, 编译bootmain.c，在obj/目录下生成对应的可重定向文件。部分参数含义与1中类似，不同如下：
+        - -Os: 编译器优化，这个等级用来优化代码尺寸
+    4. 使用`-m32`模式，利用`gcc`编译链接boot/sign.c生成可执行文件bin/sign，这一程序用于对MBR签名，即将源文件写入512 bytes并在其最后两个字节写入0x55AA。部分参数与1中类似，不同如下：
+        - -g: 增加gdb需要的调试信息
+        - -O2: 编译器优化，2级性能优化
+    5. 在`elf_i386`模式下使用`ld`链接生成obj/bootblock.o，接着使用上一步生成的`sign`程序进行签名，提示`build 512 bytes boot sector: 'bin/bootblock' success`，即生成的bin/bootblock文件为第0个扇区中的主引导记录MBR。部分参数含义与2中类似，不一样的有：
         - -N: 把text和data段设置为可读写；同时，取消数据段的页对齐；同时，取消对共享库的连接
         - -e start: 使用符号`start`作为程序的开始执行点,而不是使用缺省的进入点
         - -Ttext 0x7C00: 指定text段在输出文件中的绝对地址为0x7C00，因为BIOS执行完毕后会默认bootloader的入口地址为0x7C00并跳到此处继续执行，因此需要将bootloader的起始地址设置为0x7C00
-    5. 使用`dd`命令，设置`if=/dev/zero of=bin/ucore`，对bin/ucore.img写入"0"。参数：
+    6. 使用`dd`命令，设置`if=/dev/zero of=bin/ucore`，对bin/ucore.img写入"0"。参数：
         - count=10000: 写入的块的数量，每块大小默认为512 bytes，那么ucore.img的大小为5,120,000 bytes，实际查看其大小的确为4.9MB，一致
-    6. 使用`dd`命令，设置`if=bin/bootblock of=bin/ucore.img`，将作为MBR的bin/bootblock写入bin/ucore.img，大小为512 bytes。参数：
+    7. 使用`dd`命令，设置`if=bin/bootblock of=bin/ucore.img`，将作为MBR的bin/bootblock写入bin/ucore.img，大小为512 bytes。参数：
         - conv=notrunc: 不截短输出文件，即保留了ucore.img的4.9MB大小
-    7. 继续使用`dd`命令，设置`if=bin/kernel of=bin/ucore.img`，将ucore kernel写入bin/ucore.img的MBR之后的扇区, 大小为74828 bytes。参数：
+    8. 继续使用`dd`命令，设置`if=bin/kernel of=bin/ucore.img`，将ucore kernel写入bin/ucore.img的MBR之后的扇区, 大小为74828 bytes。参数：
         - conv=notrunc: 同上
         - seek=1: 从输出文件开头跳过1个块后再开始复制，即从第0扇区的MBR之后开始写入
 
