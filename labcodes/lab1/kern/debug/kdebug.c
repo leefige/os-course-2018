@@ -326,7 +326,6 @@ print_stackframe(void) {
 
         // pop up stackframe, refresh ebp & eip
         stack_val_eip = *(((uint32_t*) stack_val_ebp) + 1);
-        stack_val_eip = ((uint32_t *)stack_val_ebp)[1];
         stack_val_ebp = *(((uint32_t*) stack_val_ebp));
 
         // ebp should be valid

@@ -163,8 +163,13 @@
 4. 最后通过`((void (*)(void))(ELFHDR->e_entry & 0xFFFFFF))();`调用ELF Header指定的程序入口，将控制权移交给OS
 
 ### 1.5 实现函数调用堆栈跟踪函数
+- 实现过程：
+    1. 在初始获取%ebp和%eip时直接调用相应函数即可
+    2. 在获取参数时，使用`*(((uint32_t*) stack_val_ebp) + 2 + j)`，j为循环变量，从0到4分别取得4个参数的值，方法是将ebp作为指针，第0个参数为8(ebp)，其地址为&ebp+2，以此类推
+    3. 向上查找上一级调用栈时，使用`*(((uint32_t*) stack_val_ebp) + 1);`获取eip值，即4(ebp)，也即&ebp+1处的值；使用`*(((uint32_t*) stack_val_ebp));`获取ebp值，即(ebp)，也即地址&ebp处的值
+    4. 为避免错误，当%ebp <= 0时即停止上溯。
 
-- 实现详见代码。使用`make qemu`后输出如下：
+- 使用`make qemu`后输出如下：
     ```
     + cc kern/debug/kdebug.c
     + ld bin/kernel
@@ -214,6 +219,10 @@
     由于总堆栈数未达到20，因此最后一行对应于最顶层的调用栈，也即bootloader在调用bootmain时的调用栈。`ebp:0x00007bf8`为该栈的基址，由于bootloader的第一个栈设置为`movl $start, %esp`，其中`$start`为0x7c00，因此在执行`call bootmain`时将返回地址即0x7c00 - 4 = 0x7bf8压栈，即该调用栈的%ebp的值。ss:%eip为此时的栈顶地址，后边四个arg无实际含义，因为bootmain函数没有参数。
 
 ### 1.6 完善中断初始化和处理
+
+#### 中断描述符表（也可简称为保护模式下的中断向量表）中一个表项占多少字节？其中哪几位代表中断处理代码的入口？
+#### 请编程完善kern/trap/trap.c中对中断向量表进行初始化的函数idt_init
+#### 请编程完善trap.c中的中断处理函数trap
 
 ### 1.x1 扩展练习 Challenge 1
 
