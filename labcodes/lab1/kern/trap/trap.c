@@ -149,7 +149,8 @@ static void
 trap_dispatch(struct trapframe *tf) {
     char c;
 
-    struct trapframe tf_k_u, tf_u_k;
+    struct trapframe tf_k_u;
+    struct trapframe* tf_u_k;
 
     switch (tf->tf_trapno) {
     case IRQ_OFFSET + IRQ_TIMER:
@@ -186,7 +187,7 @@ trap_dispatch(struct trapframe *tf) {
         tf_k_u.tf_es = USER_DS;
         tf_k_u.tf_ss = USER_DS;
 
-        tf_k_u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
+        tf_k_u.tf_esp = (uint32_t)tf + sizeof(struct trapframe);// - 8;
 		
         // set eflags, make sure ucore can use io under user mode.
         // if CPL > IOPL, then cpu will generate a general protection.
@@ -195,9 +196,15 @@ trap_dispatch(struct trapframe *tf) {
         // set temporary stack
         // then iret will jump to the right stack
         *((uint32_t *)tf - 1) = (uint32_t)&tf_k_u;
-        
+        break;
     case T_SWITCH_TOK:
-        panic("T_SWITCH_** ??\n");
+        // panic("T_SWITCH_** ??\n");
+        tf->tf_cs = KERNEL_CS;
+        tf->tf_ds = tf->tf_es = KERNEL_DS;
+        tf->tf_eflags &= ~FL_IOPL_MASK;
+        tf_u_k = (struct trapframe *)(tf->tf_esp - (sizeof(struct trapframe) - 8));
+        memmove(tf_u_k, tf, sizeof(struct trapframe) - 8);
+        *((uint32_t *)tf - 1) = (uint32_t)tf_u_k;
         break;
     case IRQ_OFFSET + IRQ_IDE1:
     case IRQ_OFFSET + IRQ_IDE2:
