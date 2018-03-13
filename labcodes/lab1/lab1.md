@@ -145,8 +145,12 @@
     2. `$CR0_PE_ON`的值为0x1，将它和%eax中的%cr0的置做或运算，将%eax的0bit置为1
     3. 将%eax的值写回%cr0寄存器，就实现了将%cr0的0bit(PE)置1的目的，使能了保护模式
     4. 最后通过一次长跳转，进入了32位地址空间下的OS kernel代码，这就进入了保护模式
+    5. 随后（未摘录在上述代码中），将初始化%ds, %es, %fs, %gs, %ss各段寄存器，建立第一个栈（基址%ebp = 0)，将`$start`(应当为0:0x7C00)赋给%esp，最后`call bootmain`转入bootmain的代码
 
 ### 1.4 分析bootloader加载ELF格式的OS的过程
+#### bootloader如何读取硬盘扇区的？
+
+#### bootloader是如何加载ELF格式的OS？
 
 ### 1.5 实现函数调用堆栈跟踪函数
 
