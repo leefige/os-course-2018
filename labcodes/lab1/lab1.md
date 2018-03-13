@@ -216,7 +216,7 @@
     ebp:0x00007bf8 eip:0x00007d6e args:0xc031fcfa 0xc08ed88e 0x64e4d08e 0xfa7502a8
         <unknow>: -- 0x00007d6d --
     ```
-    由于总堆栈数未达到20，因此最后一行对应于最顶层的调用栈，也即bootloader在调用bootmain时的调用栈。`ebp:0x00007bf8`为该栈的基址，由于bootloader的第一个栈设置为`movl $start, %esp`，其中`$start`为0x7c00，因此在执行`call bootmain`时将返回地址即0x7c00 - 4 = 0x7bf8压栈，即该调用栈的%ebp的值。ss:%eip为此时的栈顶地址，后边四个arg无实际含义，因为bootmain函数没有参数。
+    由于总堆栈数未达到20，因此最后一行对应于最顶层的调用栈，也即bootloader在调用bootmain时的调用栈。`ebp:0x00007bf8`为该栈的基址，由于bootloader的第一个栈设置为`movl $start, %esp`，其中`$start`为0x7c00，因此在执行`call bootmain`时将返回地址压栈，再将原来的ebp压栈，这时栈顶值被赋给ebp，因此该调用栈的%ebp值为0x7bf8。ss:%eip为此时的栈顶地址，后边四个arg无实际含义，因为bootmain函数没有参数。
 
 ### 1.6 完善中断初始化和处理
 
@@ -225,9 +225,38 @@
 - LDT的一个表项长为8 bytes，其中的第16~31位为段选择子，第0~16位为offset的低16位，第48~63位为offset的高16位，拼起来可以用来获取中断处理例程的入口地址。
 
 #### 请编程完善kern/trap/trap.c中对中断向量表进行初始化的函数idt_init
+- 实现方法遵从注释中的步骤，首先声明在vectors.S中定义好的\__vectors数组，截着对idt数组中的全部256项调用`SETGATE(idt[i], 0, GD_KTEXT, __vectors[i], DPL_KERNEL)`设置idt表项，其中，0表示为interrupt而非trap，GD_KTEXT在memlayout.h中声明，表示段类型为kernel的代码段，入口offset为\__vectors数组对应的项，DPL为内核级。最后用lidt将idt表装载到idtr寄存器中。
+- 实现了这步后具有了接受键盘中断的能力，效果如下：
+    ```
+    kbd [104] h
+    kbd [000] 
+    kbd [101] e
+    kbd [000] 
+    kbd [121] y
+    kbd [000] 
+    kbd [032]  
+    kbd [000] 
+    kbd [103] g
+    kbd [000] 
+    kbd [117] u
+    kbd [000] 
+    kbd [121] y
+    kbd [000] 
+    kbd [115] s
+    ```
 
 #### 请编程完善trap.c中的中断处理函数trap
+- 实现方法：只需在`trap_dispatch`中，当时钟中断发生时，将ticks计数器加一，若ticks达到100， 则打印ticks，并将ticks清零，即可大约1s输出一次时钟中断信息。
+    ```c
+        // 1. record
+        ticks++;
 
+        // 2. print
+        if (ticks >= 100) {
+            print_ticks();
+            ticks = 0;
+        }
+    ```
 ### 1.x1 扩展练习 Challenge 1
 
 ### 1.x2 扩展练习 Challenge 2

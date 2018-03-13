@@ -46,6 +46,16 @@ idt_init(void) {
       *     You don't know the meaning of this instruction? just google it! and check the libs/x86.h to know more.
       *     Notice: the argument of lidt is idt_pd. try to find it!
       */
+    // 1. get vectors
+    extern uintptr_t __vectors[];
+
+    // 2. setup entries
+    for (int i = 0; i < 256; i++) {
+        SETGATE(idt[i], 0, GD_KTEXT, __vectors[i], DPL_KERNEL);
+    }
+
+    // 3. LIDT
+    lidt(&idt_pd);
 }
 
 static const char *
@@ -147,6 +157,16 @@ trap_dispatch(struct trapframe *tf) {
          * (2) Every TICK_NUM cycle, you can print some info using a funciton, such as print_ticks().
          * (3) Too Simple? Yes, I think so!
          */
+        // 1. record
+        ticks++;
+
+        // 2. print
+        if (ticks >= 100) {
+            print_ticks();
+            ticks = 0;
+        }
+
+        // 3. too simple ?!
         break;
     case IRQ_OFFSET + IRQ_COM1:
         c = cons_getc();
