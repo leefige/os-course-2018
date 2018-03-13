@@ -304,7 +304,35 @@ print_stackframe(void) {
       */
     // 1. read_ebp
     uint32_t stack_val_ebp = read_ebp();
+
+    // 2. read_eip
     uint32_t stack_val_eip = read_eip();
     
+    // 3. iterate stacks
+    uint32_t stack_val_args[4];
+    for (int i = 0; i < STACKFRAME_DEPTH; i++) {
+        cprintf("ebp:0x%08x eip:0x%08x ", stack_val_ebp, stack_val_eip);
+
+        // get args
+        for (int j = 0; j < 4; j++) {
+            stack_val_args[j] = *(((uint32_t*) stack_val_ebp) + 2 + j);
+        }
+
+        cprintf("args:0x%08x 0x%08x 0x%08x 0x%08x\n", stack_val_args[0], 
+                stack_val_args[1], stack_val_args[2], stack_val_args[3]);
+
+        // print function info
+        print_debuginfo(stack_val_eip - 1);
+
+        // pop up stackframe, refresh ebp & eip
+        stack_val_eip = *(((uint32_t*) stack_val_ebp) + 1);
+        stack_val_eip = ((uint32_t *)stack_val_ebp)[1];
+        stack_val_ebp = *(((uint32_t*) stack_val_ebp));
+
+        // ebp should be valid
+        if (stack_val_ebp <= 0) {
+            break;
+        }
+    }
 }
 

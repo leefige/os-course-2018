@@ -164,6 +164,54 @@
 
 ### 1.5 实现函数调用堆栈跟踪函数
 
+- 实现详见代码。使用`make qemu`后输出如下：
+    ```
+    + cc kern/debug/kdebug.c
+    + ld bin/kernel
+    10000+0 records in
+    10000+0 records out
+    5120000 bytes (5.1 MB, 4.9 MiB) copied, 0.0944737 s, 54.2 MB/s
+    1+0 records in
+    1+0 records out
+    512 bytes copied, 0.99168 s, 0.5 kB/s
+    146+1 records in
+    146+1 records out
+    74828 bytes (75 kB, 73 KiB) copied, 0.000727063 s, 103 MB/s
+    WARNING: Image format was not specified for 'bin/ucore.img' and probing guessed raw.
+            Automatically detecting the format is dangerous for raw images, write operations on block 0 will be restricted.
+            Specify the 'raw' format explicitly to remove the restrictions.
+    (THU.CST) os is loading ...
+
+    Special kernel symbols:
+    entry  0x00100000 (phys)
+    etext  0x00103279 (phys)
+    edata  0x0010ea16 (phys)
+    end    0x0010fd20 (phys)
+    Kernel executable memory footprint: 64KB
+    ebp:0x00007b38 eip:0x00100a28 args:0x00010094 0x00010094 0x00007b68 0x0010007f
+        kern/debug/kdebug.c:309: print_stackframe+22
+    ebp:0x00007b48 eip:0x00100d39 args:0x00000000 0x00000000 0x00000000 0x00007bb8
+        kern/debug/kmonitor.c:125: mon_backtrace+10
+    ebp:0x00007b68 eip:0x0010007f args:0x00000000 0x00007b90 0xffff0000 0x00007b94
+        kern/init/init.c:48: grade_backtrace2+19
+    ebp:0x00007b88 eip:0x001000a1 args:0x00000000 0xffff0000 0x00007bb4 0x00000029
+        kern/init/init.c:53: grade_backtrace1+27
+    ebp:0x00007ba8 eip:0x001000be args:0x00000000 0x00100000 0xffff0000 0x00100043
+        kern/init/init.c:58: grade_backtrace0+19
+    ebp:0x00007bc8 eip:0x001000df args:0x00000000 0x00000000 0x00000000 0x00103280
+        kern/init/init.c:63: grade_backtrace+26
+    ebp:0x00007be8 eip:0x00100050 args:0x00000000 0x00000000 0x00000000 0x00007c4f
+        kern/init/init.c:28: kern_init+79
+    ebp:0x00007bf8 eip:0x00007d6e args:0xc031fcfa 0xc08ed88e 0x64e4d08e 0xfa7502a8
+        <unknow>: -- 0x00007d6d --
+    ++ setup timer interrupts
+    ```
+- 最后一行各参数如下：
+    ```
+    ebp:0x00007bf8 eip:0x00007d6e args:0xc031fcfa 0xc08ed88e 0x64e4d08e 0xfa7502a8
+        <unknow>: -- 0x00007d6d --
+    ```
+    由于总堆栈数未达到20，因此最后一行对应于最顶层的调用栈，也即bootloader在调用bootmain时的调用栈。`ebp:0x00007bf8`为该栈的基址，由于bootloader的第一个栈设置为`movl $start, %esp`，其中`$start`为0x7c00，因此在执行`call bootmain`时将返回地址即0x7c00 - 4 = 0x7bf8压栈，即该调用栈的%ebp的值。ss:%eip为此时的栈顶地址，后边四个arg无实际含义，因为bootmain函数没有参数。
 
 ### 1.6 完善中断初始化和处理
 
