@@ -145,12 +145,22 @@
     2. `$CR0_PE_ON`的值为0x1，将它和%eax中的%cr0的置做或运算，将%eax的0bit置为1
     3. 将%eax的值写回%cr0寄存器，就实现了将%cr0的0bit(PE)置1的目的，使能了保护模式
     4. 最后通过一次长跳转，进入了32位地址空间下的OS kernel代码，这就进入了保护模式
-    5. 随后（未摘录在上述代码中），将初始化%ds, %es, %fs, %gs, %ss各段寄存器，建立第一个栈（基址%ebp = 0)，将`$start`(应当为0:0x7C00)赋给%esp，最后`call bootmain`转入bootmain的代码
 
 ### 1.4 分析bootloader加载ELF格式的OS的过程
 #### bootloader如何读取硬盘扇区的？
+- 读取扇区的接口函数为`readseg(uintptr_t va, uint32_t count, uint32_t offset)`，即将`offset`开始的`count`个字节读入`va`内存地址
+- `readseg`函数通过计算得出起始扇区，并调整目的内存地址（因为读取扇区需要以扇区大小为单位，当然这样可能导致`va`前内存空间被覆盖，因此需要谨慎设计），再调用`readsect`函数依次读出所有扇区
+- 在`readsect`函数中具体读取扇区时，分以下步骤：
+    1. 等待磁盘就绪`waitdisk();`
+    2. 发出读取扇区的命令，即使用`outb`函数对目标端口写入命令
+    3. 再次等待磁盘就绪
+    4. 通过`insl`函数把磁盘扇区数据读到指定内存地址
 
 #### bootloader是如何加载ELF格式的OS？
+1. 在1.3进入保护模式后，首先将初始化%ds, %es, %fs, %gs, %ss各段寄存器，建立第一个调用栈（基址%ebp = 0)，将`$start`(应当为0:0x7C00)赋给%esp，随后`call bootmain`转入bootmain的代码
+2. bootmain首先读取磁盘上从0地址（对应于从1号扇区开始，因为0号扇区为MBR）开始的8个扇区写入地址0x10000，并判断是否是合法的ELF文件，若不合法则进入死循环
+3. 若为合法ELF文件，则取出program header的起始地址和数量，遍历所有program header，将它们描述的磁盘存储装载入它们指定的映射内存地址，即`readseg(ph->p_va & 0xFFFFFF, ph->p_memsz, ph->p_offset);`
+4. 最后通过`((void (*)(void))(ELFHDR->e_entry & 0xFFFFFF))();`调用ELF Header指定的程序入口，将控制权移交给OS
 
 ### 1.5 实现函数调用堆栈跟踪函数
 
