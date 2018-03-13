@@ -121,7 +121,14 @@
         4. 在端口0x60写入0xdf(11011111)，该值会被设置到P2端口，实现了设置其1bit为1的目的，即置A20为高电平
 
 #### 如何初始化GDT表？
-- 
+- 通过一条指令`lgdt gdtdesc`即可加载定义好的gdtdesc（全局描述符表），其中gdtdesc为GDT的描述符，包含了GDT的基址和大小，被写入GDTR寄存器中，GDT基址指向实际的GDT表，其定义如下：
+    ```asm
+    gdt:
+        SEG_NULLASM  # null seg
+        SEG_ASM(STA_X|STA_R, 0x0, 0xffffffff) # code seg
+        SEG_ASM(STA_W, 0x0, 0xffffffff)       # data seg
+    ```
+- GDT的第一项为空项，随后两项分别是代码段和数据段的段描述符
 
 #### 如何使能和进入保护模式？
 
