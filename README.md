@@ -8,4 +8,4 @@
 
 ## OS lab commit record
 
-- 李逸飞-2015010062-lab1-201803dd-hhmmss-leefige-[commit-tag]
+- 李逸飞-2015010062-lab1-20180316-hhmmss-leefige-[commit-tag]

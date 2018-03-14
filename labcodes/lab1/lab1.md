@@ -259,7 +259,97 @@
     ```
 ### 1.x1 扩展练习 Challenge 1
 
+- 实现方法：
+    1. 首先在init.c中将`lab1_switch_test();`一行uncomment，以允许评测代码允许
+    2. 在`lab1_switch_to_kernel`和`lab1_switch_to_user`中执行系统调用，即使用`int`指令，参数分别为`T_SWITCH_TOK`和`T_SWITCH_TOU`。此处使用`movl %%ebp, %%esp`是为了确保系统调用后、函数返回前，%esp确实回到调用栈基。此处我遇到过的bug是，在`lab1_switch_to_kernel`中，起初我没有加`movl %%ebp, %%esp`，但是在刚进入函数后为了调试调用`cprintf`输出了调试信息，这时`make grade`允行无误，但删除这条语句后该函数不能正常执行，分析原因，是因为额外的函数调用保证了%esp回到正确的位置，但不做额外函数调用时，可能需要手工恢复其位置。代码如下
+        ```c
+        lab1_switch_to_user(void) {
+            //LAB1 CHALLENGE 1 : TODO
+            // "movl %%ebp, %%esp" esure that before ret, esp = ebp -> old ebp
+            asm volatile (
+                "int %0;"
+                "movl %%ebp, %%esp"
+                : 
+                : "i"(T_SWITCH_TOU)
+            );
+        }
+
+        static void
+        lab1_switch_to_kernel(void) {
+            //LAB1 CHALLENGE 1 :  TODO
+            // cprintf("in lab1_switch_to_kernel\n");
+            asm volatile (
+                "int %0;"
+                "movl %%ebp, %%esp"
+                : 
+                : "i"(T_SWITCH_TOK)
+            );
+        }
+        ```
+    3. 在trap.c中实现相应的系统调用功能。
+        - 这部分我遇到不少bug，通过gdb单步跟踪，基本明白了处理中断的原理和过程。在trapentry.S的中断处理入口处，硬件已经保存了trap frame中靠后的信息，包括trap number，此时它位于栈顶，进入trapentry后，首先将各段寄存器压栈，对应于trap frame中的最前面几项，接着通过`pushal`保存通用寄存器值，将%ds, %es置为核心数据段。这时%esp指向的正是tp（tp实际上也是一个指向结构体的指针），通过`pushl %esp`将参数tp压栈，然后`call trap`，转到trap.c中对具体trap的处理。在处理完毕后，再通过`popl %esp`将%esp指向tp（原来的esp+1），恢复通用寄存器，从tp中重置各段寄存器，最后跳过trap number和error code并用`iret`返回。
+        - 
+
 ### 1.x2 扩展练习 Challenge 2
+
+- 实现方法：在challenge 1的基础上，这部分只需要在键盘中断时加入过滤条件，在输入'0'和'3'时分别执行切换到内核/用户态的代码即可。为了方便显示结果，在输入'p'时会调用`print_trapframe(tf);`打印当前各段寄存器的值，由此判断当前的特权态：若CS最低两位为11b，则为用户态，若为00b，则为特权态。
+- 结果如下，可见按下'3'后再打印调试信息，CS为0x001b，最低两位为11，处于用户态；再按下'0'，打印调试信息可见CS为0x0008，最低两位为00，处于核心态，功能无误：
+    ```gdb
+    100 ticks
+    kbd [051] 3
+    switch to user
+    kbd [000]
+    100 ticks
+    kbd [112] p
+    trapframe at 0x10fd34
+        edi  0x00000000
+        esi  0x00010094
+        ebp  0x00007be8
+        oesp 0x0010fd54
+        ebx  0x00010094
+        edx  0x000000a1
+        ecx  0x00000000
+        eax  0x000000ff
+        ds   0x----0023
+        es   0x----0023
+        fs   0x----0023
+        gs   0x----0023
+        trap 0x00000021 Hardware Interrupt
+        err  0x00000000
+        eip  0x00100069
+        cs   0x----001b
+        flag 0x00003202 IF,IOPL=3
+        esp  0x00007bd0
+        ss   0x----0023
+    kbd [000]
+    100 ticks
+    100 ticks
+    kbd [048] 0
+    switch to kern
+    kbd [000]
+    100 ticks
+    kbd [112] p
+    trapframe at 0x10fd34
+        edi  0x00000000
+        esi  0x00010094
+        ebp  0x00007be8
+        oesp 0x0010fd54
+        ebx  0x00010094
+        edx  0x000000a1
+        ecx  0x00000000
+        eax  0x000000ff
+        ds   0x----0010
+        es   0x----0010
+        fs   0x----0023
+        gs   0x----0023
+        trap 0x00000021 Hardware Interrupt
+        err  0x00000000
+        eip  0x00100069
+        cs   0x----0008
+        flag 0x00000202 IF,IOPL=0
+    kbd [000]
+    100 ticks
+    ```
 
 ## 2. 标准答案分析
 
