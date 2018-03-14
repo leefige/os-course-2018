@@ -143,14 +143,12 @@ print_regs(struct pushregs *regs) {
     cprintf("  ecx  0x%08x\n", regs->reg_ecx);
     cprintf("  eax  0x%08x\n", regs->reg_eax);
 }
-
+/* temporary trapframe or pointer to trapframe */
+struct trapframe switchk2u, *switchu2k;
 /* trap_dispatch - dispatch based on what type of trap occurred */
 static void
 trap_dispatch(struct trapframe *tf) {
     char c;
-
-    struct trapframe tf_k_u;
-    struct trapframe* tf_u_k;
 
     switch (tf->tf_trapno) {
     case IRQ_OFFSET + IRQ_TIMER:
