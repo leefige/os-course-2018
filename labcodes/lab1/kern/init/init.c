@@ -9,6 +9,8 @@
 #include <intr.h>
 #include <pmm.h>
 #include <kmonitor.h>
+#include <string.h>
+
 int kern_init(void) __attribute__((noreturn));
 void grade_backtrace(void);
 static void lab1_switch_test(void);
@@ -86,9 +88,7 @@ lab1_switch_to_user(void) {
     //LAB1 CHALLENGE 1 : TODO
     // "movl %%ebp, %%esp" esure that before ret, esp = ebp -> old ebp
     asm volatile (
-	    "sub $0x8, %%esp \n"
 	    "int %0 \n"
-	    "movl %%ebp, %%esp"
 	    : 
 	    : "i"(T_SWITCH_TOU)
 	);
@@ -97,9 +97,9 @@ lab1_switch_to_user(void) {
 static void
 lab1_switch_to_kernel(void) {
     //LAB1 CHALLENGE 1 :  TODO
+    cprintf("in lab1_switch_to_kernel\n");
     asm volatile (
 	    "int %0 \n"
-	    "movl %%ebp, %%esp \n"
 	    : 
 	    : "i"(T_SWITCH_TOK)
 	);

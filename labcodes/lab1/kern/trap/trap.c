@@ -54,6 +54,9 @@ idt_init(void) {
         SETGATE(idt[i], 0, GD_KTEXT, __vectors[i], DPL_KERNEL);
     }
 
+	// set for switch from user to kernel
+    SETGATE(idt[T_SWITCH_TOK], 0, GD_KTEXT, __vectors[T_SWITCH_TOK], DPL_USER);
+
     // 3. LIDT
     lidt(&idt_pd);
 }
@@ -146,12 +149,14 @@ print_regs(struct pushregs *regs) {
 /* temporary trapframe or pointer to trapframe */
 struct trapframe switchk2u, *switchu2k;
 
-struct trapframe tf_k_u;
-struct trapframe* tf_u_k;
-
 /* trap_dispatch - dispatch based on what type of trap occurred */
 static void
 trap_dispatch(struct trapframe *tf) {
+    // if (tf->tf_trapno != (IRQ_OFFSET + IRQ_TIMER)) {
+    //     cprintf("trap dispatch, trap: ");
+    //     print_trapframe(tf);
+    //     cprintf("\n");
+    // }
     char c;
 
     switch (tf->tf_trapno) {
@@ -183,30 +188,30 @@ trap_dispatch(struct trapframe *tf) {
         break;
     //LAB1 CHALLENGE 1 : 2015010062 you should modify below codes.
     case T_SWITCH_TOU:
-        tf_k_u = *tf;
-        tf_k_u.tf_cs = USER_CS;
-        tf_k_u.tf_ds = USER_DS;
-        tf_k_u.tf_es = USER_DS;
-        tf_k_u.tf_ss = USER_DS;
+        switchk2u = *tf;
+        switchk2u.tf_cs = USER_CS;
+        switchk2u.tf_ds = USER_DS;
+        switchk2u.tf_es = USER_DS;
+        switchk2u.tf_ss = USER_DS;
 
-        tf_k_u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
+        switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
 		
         // set eflags, make sure ucore can use io under user mode.
         // if CPL > IOPL, then cpu will generate a general protection.
-        tf_k_u.tf_eflags |= FL_IOPL_MASK;
+        switchk2u.tf_eflags |= FL_IOPL_MASK;
     
         // set temporary stack
         // then iret will jump to the right stack
-        *((uint32_t *)tf - 1) = (uint32_t)&tf_k_u;
+        *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
         break;
     case T_SWITCH_TOK:
         // panic("T_SWITCH_** ??\n");
         tf->tf_cs = KERNEL_CS;
         tf->tf_ds = tf->tf_es = KERNEL_DS;
         tf->tf_eflags &= ~FL_IOPL_MASK;
-        tf_u_k = (struct trapframe *)(tf->tf_esp - (sizeof(struct trapframe) - 8));
-        memmove(tf_u_k, tf, sizeof(struct trapframe) - 8);
-        *((uint32_t *)tf - 1) = (uint32_t)tf_u_k;
+        switchu2k = (struct trapframe *)(tf->tf_esp - (sizeof(struct trapframe) - 8));
+        memmove(switchu2k, tf, sizeof(struct trapframe) - 8);
+        *((uint32_t *)tf - 1) = (uint32_t)switchu2k;
         break;
     case IRQ_OFFSET + IRQ_IDE1:
     case IRQ_OFFSET + IRQ_IDE2:
@@ -219,6 +224,22 @@ trap_dispatch(struct trapframe *tf) {
             panic("unexpected trap in kernel.\n");
         }
     }
+}
+
+void
+cur_debug(void) {
+    uint16_t reg1, reg2, reg3, reg4;
+    asm volatile (
+            "mov %%cs, %0;"
+            "mov %%ds, %1;"
+            "mov %%es, %2;"
+            "mov %%ss, %3;"
+            : "=m"(reg1), "=m"(reg2), "=m"(reg3), "=m"(reg4));
+    cprintf("%d: @ring %d\n", reg1 & 3);
+    cprintf("%d:  cs = %x\n", reg1);
+    cprintf("%d:  ds = %x\n", reg2);
+    cprintf("%d:  es = %x\n", reg3);
+    cprintf("%d:  ss = %x\n", reg4);
 }
 
 /* *
