@@ -171,7 +171,7 @@ trap_dispatch(struct trapframe *tf) {
         ticks++;
 
         // 2. print
-        if (ticks % 100 == 0) {
+        if (ticks % TICK_NUM == 0) {
             print_ticks();
         }
 
@@ -184,6 +184,38 @@ trap_dispatch(struct trapframe *tf) {
     case IRQ_OFFSET + IRQ_KBD:
         c = cons_getc();
         cprintf("kbd [%03d] %c\n", c, c);
+        
+        //LAB1 CHALLENGE 2 : TODO
+        // switch to kernel
+        if (c == '0') {
+            cprintf("switch to kern\n");
+            tf->tf_cs = KERNEL_CS;
+            tf->tf_ds = tf->tf_es = KERNEL_DS;
+            tf->tf_eflags &= ~FL_IOPL_MASK;
+        }
+        // switch to user
+        else if (c == '3') {
+            cprintf("switch to user\n");
+            switchk2u = *tf;
+            switchk2u.tf_cs = USER_CS;
+            switchk2u.tf_ds = USER_DS;
+            switchk2u.tf_es = USER_DS;
+            switchk2u.tf_ss = USER_DS;
+
+            switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
+            
+            // set eflags, make sure ucore can use io under user mode.
+            // if CPL > IOPL, then cpu will generate a general protection.
+            switchk2u.tf_eflags |= FL_IOPL_MASK;
+        
+            // set temporary stack
+            // then iret will jump to the right stack
+            *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
+        }
+        // print to show PL
+        else if (c == 'p') {
+            print_trapframe(tf);
+        }
         break;
     //LAB1 CHALLENGE 1 : 2015010062 you should modify below codes.
     case T_SWITCH_TOU:

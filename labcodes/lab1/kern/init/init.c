@@ -88,7 +88,8 @@ lab1_switch_to_user(void) {
     //LAB1 CHALLENGE 1 : TODO
     // "movl %%ebp, %%esp" esure that before ret, esp = ebp -> old ebp
     asm volatile (
-	    "int %0 \n"
+	    "int %0;"
+        "movl %%ebp, %%esp"
 	    : 
 	    : "i"(T_SWITCH_TOU)
 	);
@@ -97,10 +98,11 @@ lab1_switch_to_user(void) {
 static void
 lab1_switch_to_kernel(void) {
     //LAB1 CHALLENGE 1 :  TODO
-    cprintf("in lab1_switch_to_kernel\n");
+    // cprintf("in lab1_switch_to_kernel\n");
     asm volatile (
-	    "int %0 \n"
-	    : 
+	    "int %0;"
+        "movl %%ebp, %%esp"
+        : 
 	    : "i"(T_SWITCH_TOK)
 	);
 }
