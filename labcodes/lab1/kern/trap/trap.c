@@ -183,6 +183,24 @@ trap_dispatch(struct trapframe *tf) {
         break;
     case IRQ_OFFSET + IRQ_KBD:
         c = cons_getc();
+        // switch to kern
+        if (c == '0') {
+            print_trapframe(tf);
+            asm volatile (
+                "int %0 \n"
+                : 
+                : "i"(T_SWITCH_TOK)
+            );
+        } 
+        // switch to user
+        else if (c == '3') {
+            print_trapframe(tf);
+            asm volatile (
+                "int %0 \n"
+                : 
+                : "i"(T_SWITCH_TOU)
+            );
+        }
         cprintf("kbd [%03d] %c\n", c, c);
         
         //LAB1 CHALLENGE 2 : TODO
@@ -231,14 +249,20 @@ trap_dispatch(struct trapframe *tf) {
         // if CPL > IOPL, then cpu will generate a general protection.
         switchk2u.tf_eflags |= FL_IOPL_MASK;
     
-        // set temporary stack
-        // then iret will jump to the right stack
+        // set trap frame pointer
+        // tf is the pointer to the pointer of trap frame (a structure)
+        // tf = esp, while esp -> esp - 1 (*trap_frame) due to `pushl %esp`
+        // so *(tf - 1) is the pointer to trap frame
+        // change *trap_frame to point to the new frame
         *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
         break;
     case T_SWITCH_TOK:
         // panic("T_SWITCH_** ??\n");
         tf->tf_cs = KERNEL_CS;
-        tf->tf_ds = tf->tf_es = KERNEL_DS;
+        tf->tf_ds = KERNEL_DS;
+        tf->tf_es = KERNEL_DS;
+
+        // restore eflags
         tf->tf_eflags &= ~FL_IOPL_MASK;
         break;
     case IRQ_OFFSET + IRQ_IDE1:
