@@ -54,7 +54,7 @@ idt_init(void) {
         SETGATE(idt[i], 0, GD_KTEXT, __vectors[i], DPL_KERNEL);
     }
 
-	// set for switch from user to kernel
+	// set RPL of switch_to_kernel as user 
     SETGATE(idt[T_SWITCH_TOK], 0, GD_KTEXT, __vectors[T_SWITCH_TOK], DPL_USER);
 
     // 3. LIDT
