@@ -181,30 +181,30 @@ trap_dispatch(struct trapframe *tf) {
         break;
     //LAB1 CHALLENGE 1 : 2015010062 you should modify below codes.
     case T_SWITCH_TOU:
-        tf_k_u = *tf;
-        tf_k_u.tf_cs = USER_CS;
-        tf_k_u.tf_ds = USER_DS;
-        tf_k_u.tf_es = USER_DS;
-        tf_k_u.tf_ss = USER_DS;
-
-        tf_k_u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
+        if (tf->tf_cs != USER_CS) {
+            switchk2u = *tf;
+            switchk2u.tf_cs = USER_CS;
+            switchk2u.tf_ds = switchk2u.tf_es = switchk2u.tf_ss = USER_DS;
+            switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
 		
-        // set eflags, make sure ucore can use io under user mode.
-        // if CPL > IOPL, then cpu will generate a general protection.
-        tf_k_u.tf_eflags |= FL_IOPL_MASK;
-    
-        // set temporary stack
-        // then iret will jump to the right stack
-        *((uint32_t *)tf - 1) = (uint32_t)&tf_k_u;
+            // set eflags, make sure ucore can use io under user mode.
+            // if CPL > IOPL, then cpu will generate a general protection.
+            switchk2u.tf_eflags |= FL_IOPL_MASK;
+		
+            // set temporary stack
+            // then iret will jump to the right stack
+            *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
+        }
         break;
     case T_SWITCH_TOK:
-        // panic("T_SWITCH_** ??\n");
-        tf->tf_cs = KERNEL_CS;
-        tf->tf_ds = tf->tf_es = KERNEL_DS;
-        tf->tf_eflags &= ~FL_IOPL_MASK;
-        tf_u_k = (struct trapframe *)(tf->tf_esp - (sizeof(struct trapframe) - 8));
-        memmove(tf_u_k, tf, sizeof(struct trapframe) - 8);
-        *((uint32_t *)tf - 1) = (uint32_t)tf_u_k;
+        if (tf->tf_cs != KERNEL_CS) {
+            tf->tf_cs = KERNEL_CS;
+            tf->tf_ds = tf->tf_es = KERNEL_DS;
+            tf->tf_eflags &= ~FL_IOPL_MASK;
+            switchu2k = (struct trapframe *)(tf->tf_esp - (sizeof(struct trapframe) - 8));
+            memmove(switchu2k, tf, sizeof(struct trapframe) - 8);
+            *((uint32_t *)tf - 1) = (uint32_t)switchu2k;
+        }
         break;
     case IRQ_OFFSET + IRQ_IDE1:
     case IRQ_OFFSET + IRQ_IDE2:
