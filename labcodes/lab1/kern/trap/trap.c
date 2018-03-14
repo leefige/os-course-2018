@@ -171,7 +171,7 @@ trap_dispatch(struct trapframe *tf) {
         ticks++;
 
         // 2. print
-        if (ticks % 100 == 0) {
+        if (ticks % TICK_NUM == 0) {
             print_ticks();
         }
 
@@ -183,28 +183,46 @@ trap_dispatch(struct trapframe *tf) {
         break;
     case IRQ_OFFSET + IRQ_KBD:
         c = cons_getc();
+        // switch to kern
+        if (c == '0') {
+            print_trapframe(tf);
+            asm volatile (
+                "int %0 \n"
+                : 
+                : "i"(T_SWITCH_TOK)
+            );
+        } 
+        // switch to user
+        else if (c == '3') {
+            print_trapframe(tf);
+            asm volatile (
+                "int %0 \n"
+                : 
+                : "i"(T_SWITCH_TOU)
+            );
+        }
         cprintf("kbd [%03d] %c\n", c, c);
         break;
     //LAB1 CHALLENGE 1 : 2015010062 you should modify below codes.
     case T_SWITCH_TOU:
         switchk2u = *tf;
-        tf.tf_cs = USER_CS;
-        tf.tf_ds = USER_DS;
-        tf.tf_es = USER_DS;
-        tf.tf_ss = USER_DS;
+        switchk2u.tf_cs = USER_CS;
+        switchk2u.tf_ds = USER_DS;
+        switchk2u.tf_es = USER_DS;
+        switchk2u.tf_ss = USER_DS;
 
-        tf.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
+        switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
 		
         // set eflags, make sure ucore can use io under user mode.
         // if CPL > IOPL, then cpu will generate a general protection.
-        tf.tf_eflags |= FL_IOPL_MASK;
+        switchk2u.tf_eflags |= FL_IOPL_MASK;
     
         // set trap frame pointer
         // tf is the pointer to the pointer of trap frame (a structure)
         // tf = esp, while esp -> esp - 1 (*trap_frame) due to `pushl %esp`
         // so *(tf - 1) is the pointer to trap frame
         // change *trap_frame to point to the new frame
-        // *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
+        *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
         break;
     case T_SWITCH_TOK:
         // panic("T_SWITCH_** ??\n");
