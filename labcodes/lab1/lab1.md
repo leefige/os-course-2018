@@ -263,6 +263,7 @@
     1. 首先在init.c中将`lab1_switch_test();`一行uncomment，以允许评测代码允许
     2. 在`lab1_switch_to_kernel`和`lab1_switch_to_user`中执行系统调用，即使用`int`指令，参数分别为`T_SWITCH_TOK`和`T_SWITCH_TOU`。此处使用`movl %%ebp, %%esp`是为了确保系统调用后、函数返回前，%esp确实回到调用栈基。此处我遇到过的bug是，在`lab1_switch_to_kernel`中，起初我没有加`movl %%ebp, %%esp`，但是在刚进入函数后为了调试调用`cprintf`输出了调试信息，这时`make grade`允行无误，但删除这条语句后该函数不能正常执行，分析原因，是因为额外的函数调用保证了%esp回到正确的位置，但不做额外函数调用时，可能需要手工恢复其位置。代码如下
         ```c
+        static void
         lab1_switch_to_user(void) {
             //LAB1 CHALLENGE 1 : TODO
             // "movl %%ebp, %%esp" esure that before ret, esp = ebp -> old ebp
@@ -288,7 +289,7 @@
         ```
     3. 在trap.c中实现相应的系统调用功能。
         - 这部分我遇到不少bug，通过gdb单步跟踪，基本明白了处理中断的原理和过程。在trapentry.S的中断处理入口处，硬件已经保存了trap frame中靠后的信息，包括trap number，此时它位于栈顶，进入trapentry后，首先将各段寄存器压栈，对应于trap frame中的最前面几项，接着通过`pushal`保存通用寄存器值，将%ds, %es置为核心数据段。这时%esp指向的正是tp，通过`pushl %esp`将参数tp压栈，然后`call trap`，转到trap.c中对具体trap的处理。在处理完毕后，再通过`popl %esp`将%esp指向tp，恢复通用寄存器，从tp中重置各段寄存器，最后跳过trap number和error code并用`iret`返回。
-        - 由上述可见，切换状态的关键在于对tp的重写，以改变各段寄存器的值。在切到核心态时非常简单，直接对tf做修改即可，因为核心态对用户态栈拥有权限。但切到用户态时，不能直接在原tf上修改，因为原tf在核心态栈上，切换后若还停留在该处会导致"General Protection"异常。所以需要利用已经给出的全局变量switchk2u，用它构建新栈，最后将tf指向这块内存空间。这里的技巧是，作为参数的tf恰好为`pushl %esp`后的esp+1位置，因此需要将switchk2u的地址赋给`((uint32_t *)tf - 1)`，也即随后将要被`popl %esp`的栈顶位置，这样在返回trapentry继续执行时将会把这个地址赋给%esp，也即将栈顶转移到此处，就实现了从这个栈中恢复各段寄存器值的目的。
+        - 由上述可见，**切换状态的关键在于对tp的重写，以改变各段寄存器的值**。在切到核心态时非常简单，直接对tf做修改即可，因为核心态对用户态栈拥有权限。但切到用户态时，不能直接在原tf上修改，因为原tf在核心态栈上，切换后若还停留在该处会导致"General Protection"异常。所以需要利用已经给出的全局变量switchk2u，用它构建新栈，最后将tf指向这块内存空间。这里的技巧是，作为参数的tf恰好为`pushl %esp`后的esp+1位置，因此需要将switchk2u的地址赋给`((uint32_t *)tf - 1)`，也即随后将要被`popl %esp`的栈顶位置，这样在返回trapentry继续执行时将会把这个地址赋给%esp，也即将栈顶转移到此处，就实现了从这个栈中恢复各段寄存器值的目的。
         - 此外还需要修改eflags的值，以满足在用户态下可用调用I/O以显示调试信息。切回核心态时，需要将其还原。
         - 相关代码如下：
             ```c
@@ -299,8 +300,6 @@
                 switchk2u.tf_es = USER_DS;
                 switchk2u.tf_ss = USER_DS;
 
-                switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
-                
                 // set eflags, make sure ucore can use io under user mode.
                 // if CPL > IOPL, then cpu will generate a general protection.
                 switchk2u.tf_eflags |= FL_IOPL_MASK;
@@ -312,7 +311,6 @@
                 // change *trap_frame to point to the new frame
                 *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
                 break;
-
             case T_SWITCH_TOK:
                 // panic("T_SWITCH_** ??\n");
                 tf->tf_cs = KERNEL_CS;
@@ -396,6 +394,7 @@
 3. challenge：
     - 答案在切换模式时先判断了当前模式是否是目标模式，但我没有做这一判断，实际测试发现并无影响，严格来讲答案做法更节省开销，不会做不必要的切换
     - 对于切换到kernel模式，答案新建了trap frame，但我的实现中通过直接修改tf实现，实际测试可行，这样开销更小
-    - 在`lab1_switch_to_user()`函数中，答案里做了`sub $0x8, %%esp`操作，我没有执行这一步，但实际测试没有影响。相应的，答案中`switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;`的`-8`也就没有必要了。
+    - 在`lab1_switch_to_user()`函数中，答案里做了`sub $0x8, %%esp`操作，其目的是，当在核心态处理中断时硬件不会将esp和ss压栈，这里是要模拟两个压栈动作以和用户态遇到中断的栈状态保持一致。但实际上，在切换到用户态的过程中并不会用到原来的esp和ss，只需要修改cs, ds, es, gs的值即可，因此我没有执行这一步。相应的，答案中`switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;`这一对trap frame中tf_esp的操作也就没有必要了，因为对应的栈中根本没有压入这一变量。当然，如果为了防止取成员变量时取到tf_esp导致访问非法内存的情况，模拟压栈两次还是有其积极意义的，不过考虑到这里是OS kernel编程，省略这一操作也未尝不可。
+    - 事实上，由于我的实现方法中没有对esp的特殊操作，在执行`int`后的`movl %%ebp, %%esp`操作可能也不那么必要了，但是保险起见，还是保留了这一步操作。
 
 ## 3. 知识点分析
