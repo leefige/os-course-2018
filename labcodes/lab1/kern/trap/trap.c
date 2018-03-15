@@ -183,24 +183,6 @@ trap_dispatch(struct trapframe *tf) {
         break;
     case IRQ_OFFSET + IRQ_KBD:
         c = cons_getc();
-        // switch to kern
-        if (c == '0') {
-            print_trapframe(tf);
-            asm volatile (
-                "int %0 \n"
-                : 
-                : "i"(T_SWITCH_TOK)
-            );
-        } 
-        // switch to user
-        else if (c == '3') {
-            print_trapframe(tf);
-            asm volatile (
-                "int %0 \n"
-                : 
-                : "i"(T_SWITCH_TOU)
-            );
-        }
         cprintf("kbd [%03d] %c\n", c, c);
         
         //LAB1 CHALLENGE 2 : TODO
@@ -208,19 +190,21 @@ trap_dispatch(struct trapframe *tf) {
         if (c == '0') {
             cprintf("switch to kern\n");
             tf->tf_cs = KERNEL_CS;
-            tf->tf_ds = tf->tf_es = KERNEL_DS;
+            tf->tf_ds = KERNEL_DS;
+            tf->tf_es = KERNEL_DS;
             tf->tf_eflags &= ~FL_IOPL_MASK;
         }
         // switch to user
         else if (c == '3') {
             cprintf("switch to user\n");
+            
             switchk2u = *tf;
             switchk2u.tf_cs = USER_CS;
             switchk2u.tf_ds = USER_DS;
             switchk2u.tf_es = USER_DS;
             switchk2u.tf_ss = USER_DS;
 
-            switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
+            switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe);
             switchk2u.tf_eflags |= FL_IOPL_MASK;
             *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
         }
@@ -237,7 +221,7 @@ trap_dispatch(struct trapframe *tf) {
         switchk2u.tf_es = USER_DS;
         switchk2u.tf_ss = USER_DS;
 
-        switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
+        switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe);
 		
         // set eflags, make sure ucore can use io under user mode.
         // if CPL > IOPL, then cpu will generate a general protection.
