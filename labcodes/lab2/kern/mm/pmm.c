@@ -207,13 +207,13 @@ page_init(void) {
         maxpa = KMEMSIZE;
     }
 
-    extern char end[];  // start addr of page directory table
+    extern char end[];  // start addr of physical page table
 
     npage = maxpa / PGSIZE;
     pages = (struct Page *)ROUNDUP((void *)end, PGSIZE);
 
     for (i = 0; i < npage; i ++) {
-        SetPageReserved(pages + i);     // page + 1: next page dir table entry
+        SetPageReserved(pages + i);     // page + 1: next physical page table entry
     }
 
     uintptr_t freemem = PADDR((uintptr_t)pages + sizeof(struct Page) * npage);  // exactly the free mem after pdt

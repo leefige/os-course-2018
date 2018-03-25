@@ -8,7 +8,76 @@
 ## 1. 练习
 
 ### 练习2.1 实现 first-fit 连续物理内存分配算法
+1. 流程说明
+    - 在迁移Lab 1实验内容到Lab 2后，若直接运行`make qemu`，则会触发assertion failure，提示信息如下，可以看出是在检查alloc_page()即连续内存分配算法时出现异常，说明这里是尚待完成的部分：
+    ```gdb
+        kernel panic at kern/mm/default_pmm.c:277:
+        assertion failed: (p0 = alloc_page()) == p2 - 1
+    ```
+    - 在正式开始本练习前，我希望先理清程序是如何一步步执行到此处，共进行了哪些步骤，才到达了对算法的检查。通过跟踪，可以看出μcore在可以进行连续内存分配之前需要以下过程：
+        1. 和Lab 1相同的BIOS启动，并调用bootloader
+        2. bootloader直到开启A20 Gate时都与Lab 1相同，但在这之后，bootloader通过实模式下执行参数为e820h的BIOS `INT 15h`中断，实现了物理内存探测，具体过程如下：
+            1. 将物理内存地址0x8000开始的空间作为物理内存信息存放处，在0x8000放置探测到的内存块数量，在随后的空间依次放置各内存块信息，对应于一个`e820map`结构体
+            2. 先将0x8000清零，随后开始循环扫描物理内存，每次得到一条内存信息，BIOS会将信息写入%di指定的内存空间（每条记录20 bytes），接着%di值加20，0x8000值加1，再判断%ebx中的返回值，若为0则说明检查结束，否则继续循环
+            3. 检查结束后，更新全局描述符表，并在%cr0置位PE，开启保护模式
+        3. 开启保护模式后，建立第一个栈，栈基址%ebp为0，栈顶%esp为0x7c00，调用`bootmain`开始读取OS kernel映像到内存中
+        4. 从kernel elf设置的entry开始执行OS kernel代码，不同于Lab 1，这里的入口变为`kern_entry`，在此重新更新gdt，将段的base设置为`- KERNBASE`，使用`ljmp`强制更新%cs，建立新的栈，栈基址%ebp为0，栈顶%esp为`$bootstacktop`，即专门用为栈开辟的一块大小为`KSTACKSIZE`的空间结束地址，调用`kern_init`开始由kernel执行初始化
+        5. 在`kern_init`中初始化console后，就开始执行`pmm_init`，进行物理内存管理初始化
+        6. 在`pmm_init`中，先设置物理内存管理器pmm_manager，这里借用了__面向对象__方法，抽象出一个pmm_manager，提供了需要的内存初始化、分配、释放等算法，而实现可以有多种方式，默认使用default_pmm_manager，之后执行的对物理内存的操作大多调用了pmm_manager的接口
+        7. 设置pmm_manager后，进行页初始化`page_init`，其流程如下：
+            1. 建立`struct e820map *memmap`，这一结构体指向对应于物理内存地址0x8000的空间，即boot过程中保存的物理内存扫描信息，并输出这些信息
+            2. 根据上述信息得到物理内存最大地址`maxpa`，并算得物理页数量`npage = maxpa / PGSIZE`
+            3. 可用页的起始地址为kernel代码的结束地址，即在链接时得到的`extern char end[]`，于是将物理页数组的起始地址`pages`定义为这一地址，该数组中元素为`Page`类型，用于对实际物理页的组织、管理，元素数量等于可用物理页数量
+            4. 开始初始化物理页数组，先将物理页数组中对应于其**自身**存储位置的页置为“reserved”，即
+                ```c
+                for (i = 0; i < npage; i ++) {
+                    SetPageReserved(pages + i);     // page + 1: next physical page table entry
+                }
+                ```
+            5. 遍历memmap中之前扫描到的所有物理内存，将其中freemem（空闲内存的起始地址，即物理页数组结束的地址）之后、小于物理内存大小上限的部分依次建立内存映射，即调用`init_memmap`，这一方法指向pmm_manager中的同名方法
+        8. 随后进行对物理内存alloc/free的检查，这就是前述assertion failed的位置
+    - 本练习的关键，在于对default_pmm_manager中对于物理内存init/alloc/free方法的修改与完善，以实现first-fit物理内存分配算法
+2. 原理与实现
+    1. 关于pmm_manager，其定义如下所示，提供了若干接口以实现对连续物理内存的管理：
+        ```c
+        struct pmm_manager {
+            const char *name;                                 // pmm_manager名称
+            void (*init)(void);                               // pmm_manager自身初始化
+            void (*init_memmap)(struct Page *base, size_t n); // 初始化page list
+            struct Page *(*alloc_pages)(size_t n);            // 分配n个物理页
+            void (*free_pages)(struct Page *base, size_t n);  // 释放从base开始的n个物理页
+            size_t (*nr_free_pages)(void);                    // 获取当前空闲页数量
+            void (*check)(void);                              // 检查分配/释放算法
+        };
+        ```
+    2. 对于default_pmm_manager，其`init`和`init_memmap`方法其实不需要额外改动即可满足first-fit的要求；
+        - 在`init`中初始化了管理free page的双向链表`free_list`，这一链表中各项对应一块连续物理内存，同时置free page数量为0
+        - 在`init_memmap`中建立`free_list`链表项到物理页数组（也即到实际扫描到的物理内存）的映射关系：对于每一块连续的空闲物理空间，将其第一页对应的物理页数组`pages`中的元素设为“head page”，并在其中记录该块的页数量，最后将这个Page元素的`list_entry`插入`free_list`，也即将这个块作为链表节点插入链表中
+        - 默认BIOS给出的物理内存扫描信息是顺序的（地址从小到大），因此通过遍历这些信息并依次建立memmap也是顺序的，所以认为`list_entry`中各节点对应物理内存块起始地址为从小到大的，满足first-fit要求
+    3. 对于default_pmm_manager的`alloc_pages`方法，框架已经给出了其大体实现：
+        1. 遍历`free_list`，找到第一个大小不小于需要的页数量的块
+        2. 若这个块大于需要的数量，则对其分割，将前一部分分配出去，将剩下的部分插入回`free_list`
 
+        但对块进行分割的操作还不能满足first-fit的要求，因为打乱了链表中块按地址升序排列的要求。因此我作出的修改为：
+        1. 原框架分割块后未将新块的第一页设为“head page”，我补充了这一操作
+        2. 原框架直接将新块插入到了链表头，我将这里修改为将新块插入之前取出的空闲块的下一块`following_le`的前面，即`list_add_before(following_le, &(p->page_link))`
+
+        修改后，分割块并插回链表的代码如下，其中page为已找到的不小于需要数量的第一个块：
+        ```c
+        if (page != NULL) {
+            list_entry_t *following_le = list_next(le);
+            list_del(&(page->page_link));
+            if (page->property > n) {
+                struct Page *p = page + n;                      // split the allocated page
+                p->property = page->property - n;               // set page num
+                SetPageProperty(p);                             // mark as the head page
+                list_add_before(following_le, &(p->page_link)); // add the remaining block before the formerly following block
+            }
+            nr_free -= n;
+            ClearPageProperty(page);    // mark as "not head page"
+        }
+        return page;
+        ```
 ### 练习2.2 实现寻找虚拟地址对应的页表项
 
 ### 练习2.3 释放某虚地址所在的页并取消对应二级页表项的映射
