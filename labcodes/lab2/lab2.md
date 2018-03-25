@@ -78,6 +78,57 @@
         }
         return page;
         ```
+    4. 对于default_pmm_manager的`free_pages`方法，框架给出基本流程：设置被释放块的各种标记，向前、向后尝试合并相邻空闲块，将合并后的空闲块插回`free_list`. 对于原框架，要满足first-fit，需要以下修改：
+        1. 框架中在尝试拓展空闲块时，对被合并的块只做了`ClearPageProperty`即清理“head page”标记的操作，但没有将其大小置为0，虽然直观上不会有影响，但为了一致性和消除可能的隐患，在此加入了将其property（即大小）清零的操作`p->property = 0;`
+        2. 框架直接将空闲块插入到链表头，类似前述这破坏了链表节点的地址顺序性，因此改为遍历`free_pages`（链表本身的顺序性是保证的），在找到第一个地址大于空闲块基址`base`的块后/回到链表头中止，再将空闲块插入这个块（或链表头）的前面：`list_add_before(le, &(base->page_link))`，这样可以保证插入位置之前的所有节点地址均小于该空闲块
+
+        修改后，寻找位置并插入空闲块的代码如下：
+        ```c
+        // search for a place to add page into list
+        le = list_next(&free_list);
+        while (le != &free_list) {
+            p = le2page(le, page_link);
+            if (p > base) {
+                break;
+            }
+            le = list_next(le);
+        }
+        nr_free += n;
+        list_add_before(le, &(base->page_link));
+        ```
+    5. 完成这一步后，可以看到如下结果：
+        ```gdb
+        Special kernel symbols:
+        entry  0xc010002a (phys)
+        etext  0xc0105a37 (phys)
+        edata  0xc0117a36 (phys)
+        end    0xc01189c8 (phys)
+        Kernel executable memory footprint: 99KB
+        ebp:0xc0116f48 eip:0xc0100a5a args:0x00010094 0x00010094 0xc0116f78 0xc01000a9
+            kern/debug/kdebug.c:312: print_stackframe+22
+        ebp:0xc0116f58 eip:0xc0100d60 args:0x00000000 0x00000000 0x00000000 0xc0116fc8
+            kern/debug/kmonitor.c:129: mon_backtrace+10
+        ebp:0xc0116f78 eip:0xc01000a9 args:0x00000000 0xc0116fa0 0xffff0000 0xc0116fa4
+            kern/init/init.c:49: grade_backtrace2+19
+        ebp:0xc0116f98 eip:0xc01000cb args:0x00000000 0xffff0000 0xc0116fc4 0x00000029
+            kern/init/init.c:54: grade_backtrace1+27
+        ebp:0xc0116fb8 eip:0xc01000e8 args:0x00000000 0xc010002a 0xffff0000 0xc010006d
+            kern/init/init.c:59: grade_backtrace0+19
+        ebp:0xc0116fd8 eip:0xc0100109 args:0x00000000 0x00000000 0x00000000 0xc0105a40
+            kern/init/init.c:64: grade_backtrace+26
+        ebp:0xc0116ff8 eip:0xc010007a args:0x00000000 0x00000000 0x0000ffff 0x40cf9a00
+            kern/init/init.c:29: kern_init+79
+        memory management: default_pmm_manager
+        e820map:
+        memory: 0009fc00, [00000000, 0009fbff], type = 1.
+        memory: 00000400, [0009fc00, 0009ffff], type = 2.
+        memory: 00010000, [000f0000, 000fffff], type = 2.
+        memory: 07ee0000, [00100000, 07fdffff], type = 1.
+        memory: 00020000, [07fe0000, 07ffffff], type = 2.
+        memory: 00040000, [fffc0000, ffffffff], type = 2.
+        check_alloc_page() succeeded!
+        ```
+
 ### 练习2.2 实现寻找虚拟地址对应的页表项
 
 ### 练习2.3 释放某虚地址所在的页并取消对应二级页表项的映射

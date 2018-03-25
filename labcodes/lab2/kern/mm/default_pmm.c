@@ -172,12 +172,14 @@ default_free_pages(struct Page *base, size_t n) {
         // page is exactly before one page
         if (base + base->property == p) {
             base->property += p->property;
+            p->property = 0;     // clear properties of p
             ClearPageProperty(p);
             list_del(&(p->page_link));
         }
         // page is exactly after one page
         else if (p + p->property == base) {
             p->property += base->property;
+            base->property = 0;     // clear properties of base
             ClearPageProperty(base);
             base = p;
             list_del(&(p->page_link));
