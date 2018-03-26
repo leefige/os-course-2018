@@ -382,8 +382,8 @@ get_pte(pde_t *pgdir, uintptr_t la, bool create) {
     return NULL;          // (8) return page table entry
 #endif
     // (1) find page directory entry
-    size_t pdx = PDX(la);   // index of this la in page dir table
-    pde_t * pdep = pgdir + pdx;
+    size_t pdx = PDX(la);       // index of this la in page dir table
+    pde_t * pdep = pgdir + pdx; // NOTE: this is a virtual addr
 
     // (2) check if entry is not present
     if (!(*pdep & PTE_P)) {
@@ -394,7 +394,7 @@ get_pte(pde_t *pgdir, uintptr_t la, bool create) {
         // alloc page for page table
         struct Page * pt_page =  alloc_page();
         if (pt_page == NULL) {
-            return NULL
+            return NULL;
         }
 
         // (4) set page reference
@@ -411,8 +411,9 @@ get_pte(pde_t *pgdir, uintptr_t la, bool create) {
     }
     // (8) return page table entry
     size_t ptx = PTX(la);   // index of this la in page dir table
-    pte_t * ptep = (pte_t *)(&PDE_ADDR(*pdep)) + ptx;
-    return (pte_t *)KADDR(*ptep);
+    uintptr_t pt_pa = PDE_ADDR(*pdep);
+    uintptr_t pte_pa = (uintptr_t)((pte_t *)(pt_pa) + ptx);
+    return (pte_t *)KADDR(ptep);
 }
 
 //get_page - get related Page struct for linear address la using PDT pgdir
