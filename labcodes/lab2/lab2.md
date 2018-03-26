@@ -278,8 +278,8 @@
         > - 在实现分页机制后，虚拟地址/线性地址/物理地址关系为`virtual addr = linear addr = physical addr + 0xC0000000`，这里0xC0000000即`KERNBASE`，这种对应关系是在`pmm_init`中通过调用`boot_map_segment(boot_pgdir, KERNBASE, KMEMSIZE, 0, PTE_W)`对页表进行内存映射实现的，这将虚地址KERNBASE映射到了物理地址的0x0位置
         > - 因此，实现步骤如下：
         >   1. 改为`boot_map_segment(boot_pgdir, 0, KMEMSIZE, 0, PTE_W)`即可实现页表中虚拟地址等于物理地址的映射
-        >   2. 但需要注意的是，事实上OS kernel仍然处于物理内存的0x0开始的空间，而gcc编译后的OS kernel中虚拟地址为0xC0000000开始的空间，在建立虚拟地址等于物理地址的映射后，必须解决OS kernel地址映射正确的问题，即将OS kernel所在的页表中的地址全部映射到物理地址0x0的页，这一实现需要将原有`boot_pgdir[0] = boot_pgdir[PDX(KERNBASE)]`改为`boot_pgdir[PDX(KERNBASE)] = boot_pgdir[0]`. 当然，这样带来的问题是，boot_pgdir[0]中的虚拟地址将无法使用，否则会与kernel冲突，这算是这种实现方式下“虚拟地址=物理地址”的一个例外
-        >   3. 此外需要去掉`boot_pgdir[0] = 0`的恢复操作，而且需要在`check_boot_pgdir(void)`中注释掉相应的`assert(boot_pgdir[0] == 0)`检查
+        >   2. 但需要注意的是，事实上OS kernel仍然处于物理内存的0x0开始的空间，而gcc编译后的OS kernel中虚拟地址为0xC0000000开始的空间，在建立虚拟地址等于物理地址的映射后，必须解决OS kernel地址映射正确的问题，即将OS kernel所在的页表中的地址全部映射到物理地址0x0的页，这一实现需要将原有 ~~`boot_pgdir[0] = boot_pgdir[PDX(KERNBASE)]`~~ 改为`boot_pgdir[PDX(KERNBASE)] = boot_pgdir[0]`. 当然，这样带来的问题是，boot_pgdir[0]中的虚拟地址将无法使用，否则会与kernel冲突，这算是这种实现方式下“虚拟地址=物理地址”的一个例外
+        >   3. 此外需要去掉 ~~`boot_pgdir[0] = 0`~~ 的恢复操作，而且需要在`check_boot_pgdir(void)`中注释掉相应的 ~~`assert(boot_pgdir[0] == 0)`~~ 检查
         > - 完成上述步骤后即可执行`make qemu`运行，实现效果如下，可以看到页表项的变化：
         >    ```gdb
         >    memory management: default_pmm_manager
@@ -309,6 +309,25 @@
 
 ## 2. 标准答案对比
 
+1. 练习1：
+    - 在`default_alloc_pages`中，答案在分割块时的操作为先分割，再将剩余块插入被分配出去的块后，再删除被分配的块；而我的做法是先删除被分配的块（尚未分割），再分割，然后将剩余块插回原处。两种方法都是一次插入一次删除，开销应该不相上下
+    - 在`default_free_pages`中，主要有两点区别：
+        1. 答案在向前/向后拓展空闲块时，对于被合并的块未将其大小`p->property`清零，感觉应该不会有影响，但慎重起见我做了清零操作即`p->property = 0`或`base->property = 0`
+        2. 在判断待插入位置时，我默认了块之间不会有重叠，但答案则更为谨慎地使用`assert(base + base->property != p)`确认这一点，这方面答案考虑更为周全，避免了可能的隐患
+2. 练习2：
+    - 在`get_pte`中，主要有以下区别：
+        1. 答案在获取页目录项指针时，直接使用了下标访问数组元素的方法，`pde_t *pdep = &pgdir[PDX(la)]`这在C中是一种常用的方法，但对于没有学习过C直接学习C++的我来说一般不会想到这一方法。我使用的是指针类型变量 + 偏移量的方法，即`pde_t * pdep = pgdir + pdx`
+        2. 在分配页给二级页表时，答案简洁地使用`if (!create || (page = alloc_page()) == NULL)`在判断的同时完成了分配，我则分成两步，稍显麻烦
+        3. 在写入页目录项内容时，答案直接用`*pdep = pa | PTE_U | PTE_W | PTE_P`，没有对二级页表地址做处理，我则用`*pdep = (PDE_ADDR(pt_addr)) | PTE_U | PTE_W | PTE_P`只取了页表地址的高20位，虽然事实上答案的实现也没有问题，因为中间的位其实没有使用，但我的实现更多考虑了实际意义，并且避免了可能的拓展时的不一致性，但会增加一点开销
+        4. 在返回页表项虚地址时，答案同样使用一行代码`return &((pte_t *)KADDR(PDE_ADDR(*pdep)))[PTX(la)]`完成，我用了三步操作：先计算PTX，再取页表物理地址，再将页表物理地址转换为虚拟地址（指针类型）并用指针加法取得页表项虚拟地址，即
+            ```c
+            size_t ptx = PTX(la);   // index of this la in page dir table
+            uintptr_t pt_pa = PDE_ADDR(*pdep);
+            pte_t * ptep = (pte_t *)KADDR(pt_pa) + ptx;
+            return ptep;
+            ```
+3. 练习3：
+    - 在`page_remove_pte`中，由于函数本身比较简单，我与答案实现相差不多，主要在于对物理页page的引用计数是否归零的判断上，答案一如既往使用了简洁的在引用计数减一的同时判断结果是否为零的方法即`if (page_ref_dec(page) == 0)`，我则还是拆成了两步实现。
 
 ## 3. 知识点分析
 
