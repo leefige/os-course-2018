@@ -412,8 +412,8 @@ get_pte(pde_t *pgdir, uintptr_t la, bool create) {
     // (8) return page table entry
     size_t ptx = PTX(la);   // index of this la in page dir table
     uintptr_t pt_pa = PDE_ADDR(*pdep);
-    uintptr_t pte_pa = (uintptr_t)((pte_t *)(pt_pa) + ptx);
-    return (pte_t *)KADDR(pte_pa);
+    pte_t * ptep = (pte_t *)KADDR(pt_pa) + ptx;
+    return ptep;
 }
 
 //get_page - get related Page struct for linear address la using PDT pgdir

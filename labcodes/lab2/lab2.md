@@ -8,6 +8,7 @@
 ## 1. 练习
 
 ### 练习2.1 实现 first-fit 连续物理内存分配算法
+
 1. 流程说明
     - 在迁移Lab 1实验内容到Lab 2后，若直接运行`make qemu`，则会触发assertion failure，提示信息如下，可以看出是在检查alloc_page()即连续内存分配算法时出现异常，说明这里是尚待完成的部分：
     ```gdb
@@ -98,26 +99,6 @@
         ```
     5. 完成这一步后，可以看到如下结果：
         ```gdb
-        Special kernel symbols:
-        entry  0xc010002a (phys)
-        etext  0xc0105a37 (phys)
-        edata  0xc0117a36 (phys)
-        end    0xc01189c8 (phys)
-        Kernel executable memory footprint: 99KB
-        ebp:0xc0116f48 eip:0xc0100a5a args:0x00010094 0x00010094 0xc0116f78 0xc01000a9
-            kern/debug/kdebug.c:312: print_stackframe+22
-        ebp:0xc0116f58 eip:0xc0100d60 args:0x00000000 0x00000000 0x00000000 0xc0116fc8
-            kern/debug/kmonitor.c:129: mon_backtrace+10
-        ebp:0xc0116f78 eip:0xc01000a9 args:0x00000000 0xc0116fa0 0xffff0000 0xc0116fa4
-            kern/init/init.c:49: grade_backtrace2+19
-        ebp:0xc0116f98 eip:0xc01000cb args:0x00000000 0xffff0000 0xc0116fc4 0x00000029
-            kern/init/init.c:54: grade_backtrace1+27
-        ebp:0xc0116fb8 eip:0xc01000e8 args:0x00000000 0xc010002a 0xffff0000 0xc010006d
-            kern/init/init.c:59: grade_backtrace0+19
-        ebp:0xc0116fd8 eip:0xc0100109 args:0x00000000 0x00000000 0x00000000 0xc0105a40
-            kern/init/init.c:64: grade_backtrace+26
-        ebp:0xc0116ff8 eip:0xc010007a args:0x00000000 0x00000000 0x0000ffff 0x40cf9a00
-            kern/init/init.c:29: kern_init+79
         memory management: default_pmm_manager
         e820map:
         memory: 0009fc00, [00000000, 0009fbff], type = 1.
@@ -136,19 +117,123 @@
     > 4. 对于上述第3点，较简单的方法是，在遍历中直接找到第一个地址大于当前空闲块的已有块，这一定是唯一可能的向后拓展块，再取这个块的前一个块，这也一定是唯一可能的向前拓展块，同时这也确定了合并后块的插入位置。尝试将这两个块合并入待插入的空闲块，最后将合并后的空闲块插入已经确定的位置即可。
 
 ### 练习2.2 实现寻找虚拟地址对应的页表项
-- 一切地址转换的核心是ppn，即physical page number，这一值由`page - pages`算得，其中pages为内存中已经分配的管理所有物理页信息的Page的数组（长度等于物理页数量），page为待求物理页对应的pages数组中的元素的指针，其差值即为待求物理页的编号即ppn
-- 得到实际物理地址的方法：将物理页编号 ppn << PAGE_SIZE(12) 即可
-- 虚拟地址：类型为指向uintptr_t的指针，值为对应物理地址 PADDR + KERNEL_BASE(0xC0000000)
 
-    ```gdb
-    check_alloc_page() succeeded!
-    kernel panic at kern/mm/pmm.c:545:
-        assertion failed: page_ref(p2) == 0
-    Welcome to the kernel debug monitor!!
-    Type 'help' for a list of commands.
-    ```
+1. 原理简述
+    1. 关于地址
+        - 在完成first-fit物理内存分配算法后，若尝试`make qemu`，会显示在`check_pgdir`检查页目录表时出现关于`get_pte`的assertion failure，对应于本练习中对页表/页目录表的完善
+        - 在这一阶段中，段机制生效，各段base置为`-KERNBASE`即-0xC0000000，存在虚拟地址/线性地址/物理地址的差异，其关系为`virtual addr - 0xC0000000 = linear addr = physical addr`. 值得注意的是，此时代码中也做了相应区分，`pte_t`和`pdt_t`均为虚拟地址，一切可以做`*`运算的指针和函数形参中的指针类型均为虚拟地址；`uintptr_t`表示线性地址，也即此时的物理地址。虚拟地址和线性地址之间的相互转换可以简单地用Macro进行运算得到
+        - 另外需要考虑对Page类型到地址的转换。这一转换的核心是ppn，即physical page number，这一值由`page - pages`算得，其中pages为内存中已经分配的管理所有物理页信息的Page的数组（长度等于物理页数量），page为待求物理页对应的pages数组中的元素的指针（可能由alloc_page分配得到），其差值即为待求物理页的编号即ppn，再将物理页编号 ppn << PAGE_SIZE(12) 即得到物理地址，由此可以进一步将Page和线性地址和虚拟地址相联系
+        - 在实际代码执行过程中，虚拟地址到线性地址的转换由GDT隐式完成，传递给页表的地址均为线性地址，页表给出的地址为物理地址
+    2. 关于页目录表/页表
+        - 首先需要注意到地址的区别。在页目录的表项中包含的地址均为物理地址，而页表项中包含的地址也为物理地址
+        - 启动过程中，页目录表为一个page大小，其虚拟地址保存在`boot_pgdir`中。其中每一个表项长为1 byte，含有二级页表的基址（物理地址），每个二级页表也为一个page大小，含有其指向的物理页地址。页表和页目录表都是4k对齐的
+        - 获取线性地址对应页表项的方法是将线性地址分为三部分：PDX, PTX, OFFSET，使用PDX在页目录表中找到对应PDE，再从PDE中取出其高20位，即为二级页表的基址（物理地址），进一步通过PTX在二级页表中找到对应的页表项，将其地址转换为虚地址即可
+        
+2. 实现方法
+    - 根据框架注释中已经给出的模式，实现如下：
+        1. 获取页目录项pde，方法为通过`PDX`宏得到页目录项号，再将页目录指针（指向页目录的首项）加上这个编号即得到指向目的页目录项的指针，代码如下：
+            ```c
+            // (1) find page directory entry
+            size_t pdx = PDX(la);       // index of this la in page dir table
+            pde_t * pdep = pgdir + pdx; // NOTE: this is a virtual addr
+            ```
+        2. 检查页目录项，若显示对应的二级页表不存在（`*pdep & PTE_P`不为真），且在传入参数中指定了如不存在则新建，那么新建二级页表（若不需要新建，则直接返回NULL），方法为申请一个物理页，将其清零，并将该物理页的物理地址作为二级页表地址写入pde中，同时写入的还有权限控制，代码如下：
+            ```c
+            // (2) check if entry is not present
+            if (!(*pdep & PTE_P)) {
+                // (3) check if creating is needed
+                if (!create) {
+                    return NULL;
+                }
+                // alloc page for page table
+                struct Page * pt_page =  alloc_page();
+                if (pt_page == NULL) {
+                    return NULL;
+                }
+
+                // (4) set page reference
+                set_page_ref(pt_page, 1);
+
+                // (5) get linear address of page
+                uintptr_t pt_addr = page2pa(pt_page);
+
+                // (6) clear page content using memset
+                memset(KADDR(pt_addr), 0, PGSIZE);
+
+                // (7) set page directory entry's permission
+                *pdep = (PDE_ADDR(pt_addr)) | PTE_U | PTE_W | PTE_P; // PDE_ADDR: get pa &= ~0xFFF
+            }
+            ```
+        3. 返回所求的pte，方法为先由`PTX`宏得到二级页表中页表项的编号，再获取二级页表的地址（虚拟地址），将指向该二级页表的指针加上页表项编号即为指向该页表项的指针，实现如下：
+            ```c
+            // (8) return page table entry
+            size_t ptx = PTX(la);   // index of this la in page dir table
+            uintptr_t pt_pa = PDE_ADDR(*pdep);
+            pte_t * ptep = (pte_t *)KADDR(pt_pa) + ptx;
+            return ptep;
+            ```
+    - 完成后，运行`make qemu`可以看到如下结果，可见通过了`get_pte`的检查，问题转移到了对page_ref即物理页引用计数的检查上，这涉及到下一个练习
+        ```gdb
+        check_alloc_page() succeeded!
+        kernel panic at kern/mm/pmm.c:545:
+            assertion failed: page_ref(p2) == 0
+        Welcome to the kernel debug monitor!!
+        Type 'help' for a list of commands.
+        ```
+3. 回答问题
 
 ### 练习2.3 释放某虚地址所在的页并取消对应二级页表项的映射
+
+1. 原理简述
+    - 在维护页表时，需要注意与pages数组的结合。对于每个进程都有一套页表，而且不同页表项可能指向同一物理页，因此对于pages管理的每一个物理页，都有一个“**引用计数**”，在插入新页表项时，相当于将这个页表项对应的虚地址指向一个物理页，要增加物理页引用计数；而释放一个虚地址时，对应物理页的引用计数需要减一，此时如果引用计数归零，则此物理页也被释放
+    - 此外，任何时候如果更新了页表，需要在TLB中将相应虚地址对应条目置为“invalid”
+2. 实现方法
+
+    ```gdb
+    (THU.CST) os is loading ...
+
+    Special kernel symbols:
+    entry  0xc010002a (phys)
+    etext  0xc0105c11 (phys)
+    edata  0xc0117a36 (phys)
+    end    0xc01189c8 (phys)
+    Kernel executable memory footprint: 99KB
+    ebp:0xc0116f48 eip:0xc0100a5a args:0x00010094 0x00010094 0xc0116f78 0xc01000a9
+        kern/debug/kdebug.c:312: print_stackframe+22
+    ebp:0xc0116f58 eip:0xc0100d60 args:0x00000000 0x00000000 0x00000000 0xc0116fc8
+        kern/debug/kmonitor.c:129: mon_backtrace+10
+    ebp:0xc0116f78 eip:0xc01000a9 args:0x00000000 0xc0116fa0 0xffff0000 0xc0116fa4
+        kern/init/init.c:49: grade_backtrace2+19
+    ebp:0xc0116f98 eip:0xc01000cb args:0x00000000 0xffff0000 0xc0116fc4 0x00000029
+        kern/init/init.c:54: grade_backtrace1+27
+    ebp:0xc0116fb8 eip:0xc01000e8 args:0x00000000 0xc010002a 0xffff0000 0xc010006d
+        kern/init/init.c:59: grade_backtrace0+19
+    ebp:0xc0116fd8 eip:0xc0100109 args:0x00000000 0x00000000 0x00000000 0xc0105c20
+        kern/init/init.c:64: grade_backtrace+26
+    ebp:0xc0116ff8 eip:0xc010007a args:0x00000000 0x00000000 0x0000ffff 0x40cf9a00
+        kern/init/init.c:29: kern_init+79
+    memory management: default_pmm_manager
+    e820map:
+    memory: 0009fc00, [00000000, 0009fbff], type = 1.
+    memory: 00000400, [0009fc00, 0009ffff], type = 2.
+    memory: 00010000, [000f0000, 000fffff], type = 2.
+    memory: 07ee0000, [00100000, 07fdffff], type = 1.
+    memory: 00020000, [07fe0000, 07ffffff], type = 2.
+    memory: 00040000, [fffc0000, ffffffff], type = 2.
+    check_alloc_page() succeeded!
+    check_pgdir() succeeded!
+    check_boot_pgdir() succeeded!
+    -------------------- BEGIN --------------------
+    PDE(0e0) c0000000-f8000000 38000000 urw
+    |-- PTE(38000) c0000000-f8000000 38000000 -rw
+    PDE(001) fac00000-fb000000 00400000 -rw
+    |-- PTE(000e0) faf00000-fafe0000 000e0000 urw
+    |-- PTE(00001) fafeb000-fafec000 00001000 -rw
+    --------------------- END ---------------------
+    ++ setup timer interrupts
+    100 ticks
+    100 ticks
+    ```
 
 ### 练习2.x1 buddy system（伙伴系统）分配算法
 
