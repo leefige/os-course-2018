@@ -276,7 +276,36 @@
         > - 事实上，前述流程可以直接用`struct Page * pte2page(pte_t pte)`函数实现
     - 如果希望虚拟地址与物理地址相等，则需要如何修改lab2，完成此事？
         > - 在实现分页机制后，虚拟地址/线性地址/物理地址关系为`virtual addr = linear addr = physical addr + 0xC0000000`，这里0xC0000000即`KERNBASE`，这种对应关系是在`pmm_init`中通过调用`boot_map_segment(boot_pgdir, KERNBASE, KMEMSIZE, 0, PTE_W)`对页表进行内存映射实现的，这将虚地址KERNBASE映射到了物理地址的0x0位置
-        > - 因此，只需改为`boot_map_segment(boot_pgdir, 0, KMEMSIZE, 0, PTE_W)`即可实现虚拟地址等于物理地址
+        > - 因此，实现步骤如下：
+        >   1. 改为`boot_map_segment(boot_pgdir, 0, KMEMSIZE, 0, PTE_W)`即可实现页表中虚拟地址等于物理地址的映射
+        >   2. 但需要注意的是，事实上OS kernel仍然处于物理内存的0x0开始的空间，而gcc编译后的OS kernel中虚拟地址为0xC0000000开始的空间，在建立虚拟地址等于物理地址的映射后，必须解决OS kernel地址映射正确的问题，即将OS kernel所在的页表中的地址全部映射到物理地址0x0的页，这一实现需要将原有`boot_pgdir[0] = boot_pgdir[PDX(KERNBASE)]`改为`boot_pgdir[PDX(KERNBASE)] = boot_pgdir[0]`. 当然，这样带来的问题是，boot_pgdir[0]中的虚拟地址将无法使用，否则会与kernel冲突，这算是这种实现方式下“虚拟地址=物理地址”的一个例外
+        >   3. 此外需要去掉`boot_pgdir[0] = 0`的恢复操作，而且需要在`check_boot_pgdir(void)`中注释掉相应的`assert(boot_pgdir[0] == 0)`检查
+        > - 完成上述步骤后即可执行`make qemu`运行，实现效果如下，可以看到页表项的变化：
+        >    ```gdb
+        >    memory management: default_pmm_manager
+        >    e820map:
+        >    memory: 0009fc00, [00000000, 0009fbff], type = 1.
+        >    memory: 00000400, [0009fc00, 0009ffff], type = 2.
+        >    memory: 00010000, [000f0000, 000fffff], type = 2.
+        >    memory: 07ee0000, [00100000, 07fdffff], type = 1.
+        >    memory: 00020000, [07fe0000, 07ffffff], type = 2.
+        >    memory: 00040000, [fffc0000, ffffffff], type = 2.
+        >    check_alloc_page() succeeded!
+        >    check_pgdir() succeeded!
+        >    check_boot_pgdir() succeeded!
+        >    -------------------- BEGIN --------------------
+        >    PDE(0df) 00400000-38000000 37c00000 urw
+        >    |-- PTE(37c00) 00400000-38000000 37c00000 -rw
+        >    PDE(001) c0000000-c0400000 00400000 urw
+        >    |-- PTE(00400) c0000000-c0400000 00400000 -rw
+        >    PDE(001) fac00000-fb000000 00400000 -rw
+        >    |-- PTE(000df) fac01000-face0000 000df000 urw
+        >    |-- PTE(00001) faf00000-faf01000 00001000 urw
+        >    |-- PTE(00001) fafeb000-fafec000 00001000 -rw
+        >    --------------------- END ---------------------
+        >    ++ setup timer interrupts
+        >    100 ticks
+        >    ```
 
 ## 2. 标准答案对比
 
