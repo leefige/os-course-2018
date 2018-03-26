@@ -9,3 +9,4 @@
 ## OS lab commit record
 
 - 李逸飞-2015010062-lab1-20180315-194647-leefige-lab1
+- 李逸飞-2015010062-lab2-20180327-003236-leefige-lab2
