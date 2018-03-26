@@ -140,6 +140,13 @@
 - 得到实际物理地址的方法：将物理页编号 ppn << PAGE_SIZE(12) 即可
 - 虚拟地址：类型为指向uintptr_t的指针，值为对应物理地址 PADDR + KERNEL_BASE(0xC0000000)
 
+    ```gdb
+    check_alloc_page() succeeded!
+    kernel panic at kern/mm/pmm.c:545:
+        assertion failed: page_ref(p2) == 0
+    Welcome to the kernel debug monitor!!
+    Type 'help' for a list of commands.
+    ```
 
 ### 练习2.3 释放某虚地址所在的页并取消对应二级页表项的映射
 
