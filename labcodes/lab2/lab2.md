@@ -83,7 +83,7 @@
         1. 框架中在尝试拓展空闲块时，对被合并的块只做了`ClearPageProperty`即清理“head page”标记的操作，但没有将其大小置为0，虽然直观上不会有影响，但为了一致性和消除可能的隐患，在此加入了将其property（即大小）清零的操作`p->property = 0;`
         2. 框架直接将空闲块插入到链表头，类似前述这破坏了链表节点的地址顺序性，因此改为遍历`free_pages`（链表本身的顺序性是保证的），在找到第一个地址大于空闲块基址`base`的块后/回到链表头中止，再将空闲块插入这个块（或链表头）的前面：`list_add_before(le, &(base->page_link))`，这样可以保证插入位置之前的所有节点地址均小于该空闲块
 
-        修改后，寻找位置并插入空闲块的代码如下，可见`check_alloc_page()`已经成功：
+        修改后，寻找位置并插入空闲块的代码如下：
         ```c
         // search for a place to add page into list
         le = list_next(&free_list);
@@ -97,7 +97,7 @@
         nr_free += n;
         list_add_before(le, &(base->page_link));
         ```
-    5. 完成这一步后，可以看到如下结果：
+    5. 完成这一步后，可以看到如下结果，可见`check_alloc_page()`已经成功：
         ```gdb
         memory management: default_pmm_manager
         e820map:
@@ -128,7 +128,6 @@
         - 首先需要注意到地址的区别。在页目录的表项中包含的地址均为物理地址，而页表项中包含的地址也为物理地址
         - 启动过程中，页目录表为一个page大小，其虚拟地址保存在`boot_pgdir`中。其中每一个表项长为1 byte，含有二级页表的基址（物理地址），每个二级页表也为一个page大小，含有其指向的物理页地址。页表和页目录表都是4k对齐的
         - 获取线性地址对应页表项的方法是将线性地址分为三部分：PDX, PTX, OFFSET，使用PDX在页目录表中找到对应PDE，再从PDE中取出其高20位，即为二级页表的基址（物理地址），进一步通过PTX在二级页表中找到对应的页表项，将其地址转换为虚地址即可
-        
 2. 实现方法
     - 根据框架注释中已经给出的模式，实现如下：
         1. 获取页目录项pde，方法为通过`PDX`宏得到页目录项号，再将页目录指针（指向页目录的首项）加上这个编号即得到指向目的页目录项的指针，代码如下：
@@ -137,7 +136,7 @@
             size_t pdx = PDX(la);       // index of this la in page dir table
             pde_t * pdep = pgdir + pdx; // NOTE: this is a virtual addr
             ```
-        2. 检查页目录项，若显示对应的二级页表不存在（`*pdep & PTE_P`不为真），且在传入参数中指定了如不存在则新建，那么新建二级页表（若不需要新建，则直接返回NULL），方法为申请一个物理页，将其清零，并将该物理页的物理地址作为二级页表地址写入pde中，同时写入的还有权限控制，代码如下：
+        2. 检查页目录项，若显示对应的二级页表不存在（`*pdep & PTE_P`不为真），且在传入参数中指定了如不存在则新建，那么新建二级页表（若不需要新建，则直接返回NULL），方法为申请一个物理页，将其清零，并将该物理页的物理地址作为二级页表地址写入pde中，同时写入的还有权限控制，写入方法为直接取它们的按位或即可。代码如下：
             ```c
             // (2) check if entry is not present
             if (!(*pdep & PTE_P)) {
@@ -174,69 +173,110 @@
             ```
     - 完成后，运行`make qemu`可以看到如下结果，可见通过了`get_pte`的检查，问题转移到了对page_ref即物理页引用计数的检查上，这涉及到下一个练习
         ```gdb
-        check_alloc_page() succeeded!
-        kernel panic at kern/mm/pmm.c:545:
-            assertion failed: page_ref(p2) == 0
-        Welcome to the kernel debug monitor!!
-        Type 'help' for a list of commands.
+            check_alloc_page() succeeded!
+            kernel panic at kern/mm/pmm.c:545:
+                assertion failed: page_ref(p2) == 0
+            Welcome to the kernel debug monitor!!
+            Type 'help' for a list of commands.
         ```
 3. 回答问题
+    - 请描述页目录项（Pag Director Entry）和页表（Page Table Entry）中每个组成部分的含义和以及对ucore而言的潜在用处
+        > - PDE：高20位表示二级页表基址的高20位；第3位为PTE_U，置1表示用户可以访问；第2位为PTE_W，置1表示该二级页表中各页可写；第1位为PTE_P，置1表示二级页表存在
+        > - PTE：高20位表示物理页基址的高20位；第3位为PTE_U，置1表示用户可以访问；第2位为PTE_W，置1表示该页可写；第1位为PTE_P，置1表示该物理页存在于内存中
+        > - 潜在用处：各控制位均有潜在用处，PTE_U用于对不同内存的权限控制，保护核心代码和数据；PTE_W可以用于实现只读内存空间；对于页目录表，PTE_P可以使未用到的二级页表不必存在于内存中，减少空间开销，对于二级页表，PTE_P可以支持虚拟存储技术，允许部分页被替换到外存中，解决物理内存不足的问题。
+    - 如果ucore执行过程中访问内存，出现了页访问异常，请问硬件要做哪些事情？
+        > 出现页访问异常时，如果在实现了虚拟存储情况下，若页不存在则触发`PAGE FAULT`异常，硬件要负责先检查异常编号，通过tss找到内核栈位置，保存现场（将eflags，eip，cs寄存器和错误码压栈，如果涉及特权级切换还需要将ss和esp寄存器压栈），然后转入对缺页异常的处理例程（软件部分）；软件处理结束后（可能分配物理页/将物理页从外存换入/什么也没做），再次交给硬件，硬件会再次尝试执行触发`PAGE FAULT`的指令
 
 ### 练习2.3 释放某虚地址所在的页并取消对应二级页表项的映射
 
 1. 原理简述
-    - 在维护页表时，需要注意与pages数组的结合。对于每个进程都有一套页表，而且不同页表项可能指向同一物理页，因此对于pages管理的每一个物理页，都有一个“**引用计数**”，在插入新页表项时，相当于将这个页表项对应的虚地址指向一个物理页，要增加物理页引用计数；而释放一个虚地址时，对应物理页的引用计数需要减一，此时如果引用计数归零，则此物理页也被释放
-    - 此外，任何时候如果更新了页表，需要在TLB中将相应虚地址对应条目置为“invalid”
+    - 在维护页表时，需要注意与pages数组的结合。对于每个进程都有一套页表，而且不同页表项可能指向同一物理页，这意味着一个物理页可能被若干个页表项引用，因此对于pages管理的每一个物理页，都有一个“**引用计数**”
+        - 在插入新页表项时，相当于将这个页表项对应的虚地址指向一个物理页，要增加物理页引用计数
+        - 释放一个虚地址时，对应物理页的引用计数需要减一，此时如果引用计数归零，则此物理页也被释放
+    - 此外，任何时候如果更新了页表，需要在TLB中将相应虚地址对应条目置为“invalid”，以保证TLB和页表的一致性
 2. 实现方法
+    1. 首先检查该虚地址对应的页表项是否存在，若不存在则直接返回，若存在则得到该页表项对应的物理页Page，即
+        ```c
+        //(1) check if this page table entry is present
+        if (!(*ptep & PTE_P)) {
+            return;
+        }
+        //(2) find corresponding page to pte
+        struct Page *page = pte2page(*ptep);
+        ```
+    2. 将该物理页引用计数减一，当引用计数减为零时，释放该物理页，即
+        ```c
+        //(3) decrease page reference
+        page_ref_dec(page);
 
+        //(4) and free this page when page reference reachs 0
+        if (page->ref == 0) {
+            free_page(page);
+        }
+        ```
+    3. 清理该页表项，同时在TLB中将该虚地址对应的项置为“invalid”
+        ```c
+        //(5) clear second page table entry
+        *ptep = 0;
+
+        //(6) flush tlb
+        tlb_invalidate(pgdir, la);
+        ```
+    4. 实现后执行`make qemu`效果如下，可见已经顺利地建立了页表，并开启了段页式内存管理机制，打印出了当前页表/页目录表内容，并且可以正常接收时钟中断：
     ```gdb
-    (THU.CST) os is loading ...
+        (THU.CST) os is loading ...
 
-    Special kernel symbols:
-    entry  0xc010002a (phys)
-    etext  0xc0105c11 (phys)
-    edata  0xc0117a36 (phys)
-    end    0xc01189c8 (phys)
-    Kernel executable memory footprint: 99KB
-    ebp:0xc0116f48 eip:0xc0100a5a args:0x00010094 0x00010094 0xc0116f78 0xc01000a9
-        kern/debug/kdebug.c:312: print_stackframe+22
-    ebp:0xc0116f58 eip:0xc0100d60 args:0x00000000 0x00000000 0x00000000 0xc0116fc8
-        kern/debug/kmonitor.c:129: mon_backtrace+10
-    ebp:0xc0116f78 eip:0xc01000a9 args:0x00000000 0xc0116fa0 0xffff0000 0xc0116fa4
-        kern/init/init.c:49: grade_backtrace2+19
-    ebp:0xc0116f98 eip:0xc01000cb args:0x00000000 0xffff0000 0xc0116fc4 0x00000029
-        kern/init/init.c:54: grade_backtrace1+27
-    ebp:0xc0116fb8 eip:0xc01000e8 args:0x00000000 0xc010002a 0xffff0000 0xc010006d
-        kern/init/init.c:59: grade_backtrace0+19
-    ebp:0xc0116fd8 eip:0xc0100109 args:0x00000000 0x00000000 0x00000000 0xc0105c20
-        kern/init/init.c:64: grade_backtrace+26
-    ebp:0xc0116ff8 eip:0xc010007a args:0x00000000 0x00000000 0x0000ffff 0x40cf9a00
-        kern/init/init.c:29: kern_init+79
-    memory management: default_pmm_manager
-    e820map:
-    memory: 0009fc00, [00000000, 0009fbff], type = 1.
-    memory: 00000400, [0009fc00, 0009ffff], type = 2.
-    memory: 00010000, [000f0000, 000fffff], type = 2.
-    memory: 07ee0000, [00100000, 07fdffff], type = 1.
-    memory: 00020000, [07fe0000, 07ffffff], type = 2.
-    memory: 00040000, [fffc0000, ffffffff], type = 2.
-    check_alloc_page() succeeded!
-    check_pgdir() succeeded!
-    check_boot_pgdir() succeeded!
-    -------------------- BEGIN --------------------
-    PDE(0e0) c0000000-f8000000 38000000 urw
-    |-- PTE(38000) c0000000-f8000000 38000000 -rw
-    PDE(001) fac00000-fb000000 00400000 -rw
-    |-- PTE(000e0) faf00000-fafe0000 000e0000 urw
-    |-- PTE(00001) fafeb000-fafec000 00001000 -rw
-    --------------------- END ---------------------
-    ++ setup timer interrupts
-    100 ticks
-    100 ticks
+        Special kernel symbols:
+        entry  0xc010002a (phys)
+        etext  0xc0105c11 (phys)
+        edata  0xc0117a36 (phys)
+        end    0xc01189c8 (phys)
+        Kernel executable memory footprint: 99KB
+        ebp:0xc0116f48 eip:0xc0100a5a args:0x00010094 0x00010094 0xc0116f78 0xc01000a9
+            kern/debug/kdebug.c:312: print_stackframe+22
+        ebp:0xc0116f58 eip:0xc0100d60 args:0x00000000 0x00000000 0x00000000 0xc0116fc8
+            kern/debug/kmonitor.c:129: mon_backtrace+10
+        ebp:0xc0116f78 eip:0xc01000a9 args:0x00000000 0xc0116fa0 0xffff0000 0xc0116fa4
+            kern/init/init.c:49: grade_backtrace2+19
+        ebp:0xc0116f98 eip:0xc01000cb args:0x00000000 0xffff0000 0xc0116fc4 0x00000029
+            kern/init/init.c:54: grade_backtrace1+27
+        ebp:0xc0116fb8 eip:0xc01000e8 args:0x00000000 0xc010002a 0xffff0000 0xc010006d
+            kern/init/init.c:59: grade_backtrace0+19
+        ebp:0xc0116fd8 eip:0xc0100109 args:0x00000000 0x00000000 0x00000000 0xc0105c20
+            kern/init/init.c:64: grade_backtrace+26
+        ebp:0xc0116ff8 eip:0xc010007a args:0x00000000 0x00000000 0x0000ffff 0x40cf9a00
+            kern/init/init.c:29: kern_init+79
+        memory management: default_pmm_manager
+        e820map:
+        memory: 0009fc00, [00000000, 0009fbff], type = 1.
+        memory: 00000400, [0009fc00, 0009ffff], type = 2.
+        memory: 00010000, [000f0000, 000fffff], type = 2.
+        memory: 07ee0000, [00100000, 07fdffff], type = 1.
+        memory: 00020000, [07fe0000, 07ffffff], type = 2.
+        memory: 00040000, [fffc0000, ffffffff], type = 2.
+        check_alloc_page() succeeded!
+        check_pgdir() succeeded!
+        check_boot_pgdir() succeeded!
+        -------------------- BEGIN --------------------
+        PDE(0e0) c0000000-f8000000 38000000 urw
+        |-- PTE(38000) c0000000-f8000000 38000000 -rw
+        PDE(001) fac00000-fb000000 00400000 -rw
+        |-- PTE(000e0) faf00000-fafe0000 000e0000 urw
+        |-- PTE(00001) fafeb000-fafec000 00001000 -rw
+        --------------------- END ---------------------
+        ++ setup timer interrupts
+        100 ticks
+        100 ticks
     ```
-
-### 练习2.x1 buddy system（伙伴系统）分配算法
-
+3. 回答问题
+    - 数据结构Page的全局变量（其实是一个数组）的每一项与页表中的页目录项和页表项有无对应关系？如果有，其对应关系是啥？
+        > - 正如前文多次提到的，Page结构的pages数组用于管理实际物理页，每个元素对应于一个物理页，由于物理页与页表/页目录表的对应关系，pages项与页表项/页目录表项也存在对应关系
+        > - 这种关系同物理页和页表项的关系一样，也是一对多的关系，每个pages中的项对应于一个物理页（编号也是一一对应，即第i个pages项对应于第i个物理页），也就对应于所有引用该物理页的页表项，由此也对应到了包含该页表项的二级页表对应的页目录表项
+        > - 从数值关系来讲，假设某一虚拟地址已经分配了物理页，则其高10位对应一页目录项，该项高20位左移12位得到二级页表基址，虚拟地址的下一个10位为二级页表中页表项编号，这一页表项高20位左移12位为物理页地址，这一地址右移12位（相当于直接取出页表项高20位）即得到该物理页编号ppn，这也是该物理页对应的pages项的下标，可以直接用pages[ppn]得到该项
+        > - 事实上，前述流程可以直接用`struct Page * pte2page(pte_t pte)`函数实现
+    - 如果希望虚拟地址与物理地址相等，则需要如何修改lab2，完成此事？
+        > - 在实现分页机制后，虚拟地址/线性地址/物理地址关系为`virtual addr = linear addr = physical addr + 0xC0000000`，这里0xC0000000即`KERNBASE`，这种对应关系是在`pmm_init`中通过调用`boot_map_segment(boot_pgdir, KERNBASE, KMEMSIZE, 0, PTE_W)`对页表进行内存映射实现的，这将虚地址KERNBASE映射到了物理地址的0x0位置
+        > - 因此，只需改为`boot_map_segment(boot_pgdir, 0, KMEMSIZE, 0, PTE_W)`即可实现虚拟地址等于物理地址
 
 ## 2. 标准答案对比
 
