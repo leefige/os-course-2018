@@ -37,6 +37,7 @@ struct Page *pages;
 size_t npage = 0;
 
 // virtual address of boot-time page directory
+// NOTE: pde_t: a pointer to ptr_t, means a pointer to pointer(phy addr)
 pde_t *boot_pgdir = NULL;
 // physical address of boot-time page directory
 uintptr_t boot_cr3;
@@ -277,7 +278,7 @@ boot_alloc_page(void) {
     if (p == NULL) {
         panic("boot_alloc_page failed.\n");
     }
-    return page2kva(p);
+    return page2kva(p);     // va = pa + KERNELBASE(0x C000 0000)
 }
 
 //pmm_init - setup a pmm to manage physical memory, build PDT&PT to setup paging mechanism 
@@ -301,7 +302,7 @@ pmm_init(void) {
     // create boot_pgdir, an initial page directory(Page Directory Table, PDT)
     boot_pgdir = boot_alloc_page();
     memset(boot_pgdir, 0, PGSIZE);
-    boot_cr3 = PADDR(boot_pgdir);
+    boot_cr3 = PADDR(boot_pgdir);   // paddr of pgdir
 
     check_pgdir();
 
@@ -347,7 +348,7 @@ pmm_init(void) {
 // return vaule: the kernel virtual address of this pte
 pte_t *
 get_pte(pde_t *pgdir, uintptr_t la, bool create) {
-    /* LAB2 EXERCISE 2: YOUR CODE
+    /* LAB2 EXERCISE 2: 2015010062
      *
      * If you need to visit a physical address, please use KADDR()
      * please read pmm.h for useful macros
@@ -380,6 +381,38 @@ get_pte(pde_t *pgdir, uintptr_t la, bool create) {
     }
     return NULL;          // (8) return page table entry
 #endif
+    // (1) find page directory entry
+    size_t pdx = PDX(la);   // index of this la in page dir table
+    pde_t * pdep = pgdir + pdx;
+
+    // (2) check if entry is not present
+    if (!(*pdep & PTE_P)) {
+        // (3) check if creating is needed
+        if (!create) {
+            return NULL;
+        }
+        // alloc page for page table
+        struct Page * pt_page =  alloc_page();
+        if (pt_page == NULL) {
+            return NULL
+        }
+
+        // (4) set page reference
+        set_page_ref(pt_page, 1);
+
+        // (5) get linear address of page
+        uintptr_t pt_addr = page2pa(pt_page);
+
+        // (6) clear page content using memset
+        memset(KADDR(pt_addr), 0, PGSIZE);
+
+        // (7) set page directory entry's permission
+        *pdep = (PDE_ADDR(pt_addr)) | PTE_U | PTE_W | PTE_P; // PDE_ADDR: get pa &= ~0xFFF
+    }
+    // (8) return page table entry
+    size_t ptx = PTX(la);   // index of this la in page dir table
+    pte_t * ptep = (pte_t *)(&PDE_ADDR(*pdep)) + ptx;
+    return (pte_t *)KADDR(*ptep);
 }
 
 //get_page - get related Page struct for linear address la using PDT pgdir
