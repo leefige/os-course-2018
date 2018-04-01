@@ -175,6 +175,10 @@ pgfault_handler(struct trapframe *tf) {
 static volatile int in_swap_tick_event = 0;
 extern struct mm_struct *check_mm_struct;
 
+// LAB1 YOU SHOULD ALSO COPY THIS
+/* temporary trapframe or pointer to trapframe */
+struct trapframe switchk2u, *switchu2k;
+
 static void
 trap_dispatch(struct trapframe *tf) {
     char c;
