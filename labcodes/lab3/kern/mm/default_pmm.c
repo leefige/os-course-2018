@@ -119,6 +119,7 @@ default_init_memmap(struct Page *base, size_t n) {
     list_add(&free_list, &(base->page_link));
 }
 
+// MODIFIED need to be rewritten
 static struct Page *
 default_alloc_pages(size_t n) {
     assert(n > 0);
@@ -135,18 +136,22 @@ default_alloc_pages(size_t n) {
         }
     }
     if (page != NULL) {
+        list_entry_t *following_le = list_next(le);
         list_del(&(page->page_link));
         if (page->property > n) {
-            struct Page *p = page + n;
-            p->property = page->property - n;
-            list_add(&free_list, &(p->page_link));
-    }
+            struct Page *p = page + n;                      // split the allocated page
+            p->property = page->property - n;               // set page num
+            SetPageProperty(p);                             // mark as the head page
+            // list_add(&free_list, &(p->page_link));
+            list_add_before(following_le, &(p->page_link)); // add the remaining block before the formerly following block
+        }
         nr_free -= n;
-        ClearPageProperty(page);
+        ClearPageProperty(page);    // mark as "not head page"
     }
     return page;
 }
 
+// MODIFIED
 static void
 default_free_pages(struct Page *base, size_t n) {
     assert(n > 0);
@@ -154,28 +159,46 @@ default_free_pages(struct Page *base, size_t n) {
     for (; p != base + n; p ++) {
         assert(!PageReserved(p) && !PageProperty(p));
         p->flags = 0;
-        set_page_ref(p, 0);
+        set_page_ref(p, 0);     // clear ref flag
     }
     base->property = n;
     SetPageProperty(base);
+
+    // try to extend free block
     list_entry_t *le = list_next(&free_list);
     while (le != &free_list) {
         p = le2page(le, page_link);
         le = list_next(le);
+        // page is exactly before one page
         if (base + base->property == p) {
             base->property += p->property;
+            p->property = 0;     // clear properties of p
             ClearPageProperty(p);
             list_del(&(p->page_link));
         }
+        // page is exactly after one page
         else if (p + p->property == base) {
             p->property += base->property;
+            base->property = 0;     // clear properties of base
             ClearPageProperty(base);
             base = p;
             list_del(&(p->page_link));
         }
     }
+    
+    // search for a place to add page into list
+    le = list_next(&free_list);
+    while (le != &free_list) {
+        p = le2page(le, page_link);
+        if (p > base) {
+            break;
+        }
+        le = list_next(le);
+    }
+    
     nr_free += n;
-    list_add(&free_list, &(base->page_link));
+    // list_add(&free_list, &(base->page_link));
+    list_add_before(le, &(base->page_link)); 
 }
 
 static size_t
