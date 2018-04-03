@@ -317,7 +317,7 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     switch (error_code & 3) {
     default:
             /* error code flag : default is 3 ( W/R=1, P=1): write, present */
-            // since &= 3, empty default is safe here
+            // this happens when privilege conflict
     case 2: /* error code flag : (W/R=1, P=0): write, not present */
         if (!(vma->vm_flags & VM_WRITE)) {
             cprintf("do_pgfault failed: error code flag = write AND not present, but the addr's vma cannot write\n");
@@ -334,12 +334,13 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
             goto failed;
         }
     }
-    /* IF (write an existed addr ) OR
+    /* IF (write an existed addr ) OR   // this happens when privilege conflict
      *    (write an non_existed addr && addr is writable) OR
      *    (read  an non_existed addr && addr is readable)
      * THEN
      *    continue process
      */
+    // constitute permission
     uint32_t perm = PTE_U;
     if (vma->vm_flags & VM_WRITE) {
         perm |= PTE_W;
@@ -373,7 +374,7 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
         pgdir_alloc_page(mm->pgdir, addr, perm);
     }
     else {
-    /*LAB3 EXERCISE 2: YOUR CODE
+    /*LAB3 EXERCISE 2: 2015010062
     * Now we think this pte is a  swap entry, we should load data from disk to a page with phy addr,
     * and map the phy addr with logical addr, trigger swap manager to record the access situation of this page.
     *
