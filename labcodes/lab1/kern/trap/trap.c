@@ -146,6 +146,8 @@ print_regs(struct pushregs *regs) {
     cprintf("  ecx  0x%08x\n", regs->reg_ecx);
     cprintf("  eax  0x%08x\n", regs->reg_eax);
 }
+
+// LAB1 YOU SHOULD ALSO COPY THIS
 /* temporary trapframe or pointer to trapframe */
 struct trapframe switchk2u, *switchu2k;
 
