@@ -18,7 +18,7 @@ kern_entry:
 
     # update eip
     # now, eip = 0x1.....
-    leal next, %eax
+    leal next, %eax     #c0100016:	8d 05 1e 00 10 c0    	lea    0xc010001e,%eax
     # set eip = KERNBASE + 0x1.....
     jmp *%eax
 next:
