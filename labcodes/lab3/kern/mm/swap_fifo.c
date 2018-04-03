@@ -47,11 +47,22 @@ _fifo_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int
     list_entry_t *head=(list_entry_t*) mm->sm_priv;
     list_entry_t *entry=&(page->pra_page_link);
     
-   assert(entry != NULL && head != NULL);
+    assert(entry != NULL && head != NULL);
     //record the page access situlation
-    /*LAB3 EXERCISE 2: YOUR CODE*/ 
+    /*LAB3 EXERCISE 2: 2015010062*/ 
+    // not swap in but call this func, means failed to swap out 
+    if (swap_in == 0) {
+        list_entry_t *le_prev = head, *le;
+        while ((le = list_next(le_prev)) != head) {
+            if (le == entry) {
+                list_del(le);
+                break;
+            }
+            le_prev = le;        
+        }
+    }
     //(1)link the most recent arrival page at the back of the pra_list_head qeueue.
-    list_add(head, entry);
+    list_add_before(head, entry);
     return 0;
 }
 /*
@@ -67,13 +78,12 @@ _fifo_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_tick
     /* Select the victim */
     /*LAB3 EXERCISE 2: 2015010062*/ 
     //(1)  unlink the  earliest arrival page in front of pra_list_head qeueue
+    list_entry_t *front = list_next(head);
+    assert(front != head);
+    list_del(front);
     //(2)  assign the value of *ptr_page to the addr of this page
-    list_entry_t *le = head->prev;
-    assert(head!=le);
-    struct Page *p = le2page(le, pra_page_link);
-    list_del(le);
-    assert(p !=NULL);
-    *ptr_page = p;
+    struct Page *page = le2page(front, pra_page_link);
+    *ptr_page = page;
     return 0;
 }
 
