@@ -375,7 +375,6 @@ get_pte(pde_t *pgdir, uintptr_t la, bool create) {
     // (1) find page directory entry
     size_t pdx = PDX(la);       // index of this la in page dir table
     pde_t * pdep = pgdir + pdx; // NOTE: this is a virtual addr
-
     // (2) check if entry is not present
     if (!(*pdep & PTE_P)) {
         // (3) check if creating is needed
@@ -387,16 +386,12 @@ get_pte(pde_t *pgdir, uintptr_t la, bool create) {
         if (pt_page == NULL) {
             return NULL;
         }
-
         // (4) set page reference
         set_page_ref(pt_page, 1);
-
         // (5) get linear address of page
         uintptr_t pt_addr = page2pa(pt_page);
-
         // (6) clear page content using memset
         memset(KADDR(pt_addr), 0, PGSIZE);
-
         // (7) set page directory entry's permission
         *pdep = (PDE_ADDR(pt_addr)) | PTE_U | PTE_W | PTE_P; // PDE_ADDR: get pa &= ~0xFFF
     }
@@ -456,18 +451,14 @@ page_remove_pte(pde_t *pgdir, uintptr_t la, pte_t *ptep) {
     }
     //(2) find corresponding page to pte
     struct Page *page = pte2page(*ptep);
-
     //(3) decrease page reference
     page_ref_dec(page);
-
     //(4) and free this page when page reference reachs 0
     if (page->ref == 0) {
         free_page(page);
     }
-
     //(5) clear second page table entry
     *ptep = 0;
-
     //(6) flush tlb
     tlb_invalidate(pgdir, la);
 }

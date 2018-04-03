@@ -119,7 +119,7 @@ default_init_memmap(struct Page *base, size_t n) {
     list_add(&free_list, &(base->page_link));
 }
 
-// MODIFIED need to be rewritten
+// LAB2 MODIFIED need to be rewritten
 static struct Page *
 default_alloc_pages(size_t n) {
     assert(n > 0);
@@ -142,7 +142,6 @@ default_alloc_pages(size_t n) {
             struct Page *p = page + n;                      // split the allocated page
             p->property = page->property - n;               // set page num
             SetPageProperty(p);                             // mark as the head page
-            // list_add(&free_list, &(p->page_link));
             list_add_before(following_le, &(p->page_link)); // add the remaining block before the formerly following block
         }
         nr_free -= n;
@@ -151,7 +150,7 @@ default_alloc_pages(size_t n) {
     return page;
 }
 
-// MODIFIED
+// LAB2 MODIFIED
 static void
 default_free_pages(struct Page *base, size_t n) {
     assert(n > 0);
@@ -163,7 +162,6 @@ default_free_pages(struct Page *base, size_t n) {
     }
     base->property = n;
     SetPageProperty(base);
-
     // try to extend free block
     list_entry_t *le = list_next(&free_list);
     while (le != &free_list) {
@@ -185,7 +183,6 @@ default_free_pages(struct Page *base, size_t n) {
             list_del(&(p->page_link));
         }
     }
-    
     // search for a place to add page into list
     le = list_next(&free_list);
     while (le != &free_list) {
@@ -195,9 +192,7 @@ default_free_pages(struct Page *base, size_t n) {
         }
         le = list_next(le);
     }
-    
     nr_free += n;
-    // list_add(&free_list, &(base->page_link));
     list_add_before(le, &(base->page_link)); 
 }
 
