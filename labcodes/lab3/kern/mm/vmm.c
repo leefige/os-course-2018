@@ -372,8 +372,7 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     assert(ptep != NULL);
     //(2) if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
     if (*ptep == 0) {
-        struct Page *page = pgdir_alloc_page(mm->pgdir, addr, perm);
-        assert(page != NULL);
+        assert(pgdir_alloc_page(mm->pgdir, addr, perm) != NULL);
     }
     else {
     /*LAB3 EXERCISE 2: 2015010062
