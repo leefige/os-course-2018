@@ -9,38 +9,40 @@
 
 ### 练习3.0 填写已有实验
 
-1. **查看变更**
-    - 在迁移Lab 1和Lab 2实验内容到Lab 3后，若直接运行`make qemu`，则会出现提示信息如下，可以看出对Lab1~2的内容检查已经完成，并触发了page fault，证明移植成功：
-    ```gdb
-        check_alloc_page() succeeded!
-        check_pgdir() succeeded!
-        check_boot_pgdir() succeeded!
-        -------------------- BEGIN --------------------
-        PDE(0e0) c0000000-f8000000 38000000 urw
-        |-- PTE(38000) c0000000-f8000000 38000000 -rw
-        PDE(001) fac00000-fb000000 00400000 -rw
-        |-- PTE(000e0) faf00000-fafe0000 000e0000 urw
-        |-- PTE(00001) fafeb000-fafec000 00001000 -rw
-        --------------------- END ---------------------
-        check_vma_struct() succeeded!
-        page fault at 0x00000100: K/W [no page found].
-        page fault at 0x00000100: K/W [no page found].
-    ```
-    - 在正式开始本练习前，同以往类似，我希望从boot开始理清OS启动和初始化的步骤。在lab 3中，通过检查init/entry.S文件，可以看到本lab中对启动分页机制的设置和lab 2有所不同，体现在：
-        1. lab 2中，在汇编编写的entry.S中并没有启动分页机制，而是在段机制下运行，在调用C编写的kern_ini()后才进一步启动分页机制，页表和页目录表也是在C函数编写的程序中定义并填充的
-        2. lab 3中，在entry.S中直接定义好了的页目录表和页表，并在kern_entry中直接将页目录表物理地址写入%cr3寄存器，即
-            ```x86asm
-                movl $REALLOC(__boot_pgdir), %eax
-                movl %eax, %cr3
-            ```
-            需要注意的是，该页表中已经定义了`va 0 ~ 4M to pa 0 ~ 4M`和`va KERNBASE + (0 ~ 4M) to pa 0 ~ 4M`两种映射，其中前者为临时映射，作用与lab 2中相同
-        3. 随后直接开启页机制，并且通过`jmp`指令强制更新%eip为KERNBASE开始的虚拟地址（之前虚拟地址等于线性地址，而且由于GDT中段基址为0，因此也等于物理地址），这一更新操作如下，其中next为下条指令地址：
-            ```x86asm
-                leal next, %eax
-                jmp *%eax
-            ```
-        4. 在这之后，因为已经更新了%eip，因此取消临时映射，并建立调用栈调用kern_init()
-    - 随后的步骤与lab 2相似，但在物理内存、中断、idt初始化后，需要进行虚拟存储、IDE磁盘和swap的初始化，这是本次实验需要完成的部分
+#### 合并与变更说明
+- 在迁移Lab 1和Lab 2实验内容到Lab 3后，若直接运行`make qemu`，则会出现提示信息如下，可以看出对Lab1~2的内容检查已经完成，并触发了page fault，证明移植成功：
+```gdb
+    ...
+    check_alloc_page() succeeded!
+    check_pgdir() succeeded!
+    check_boot_pgdir() succeeded!
+    -------------------- BEGIN --------------------
+    PDE(0e0) c0000000-f8000000 38000000 urw
+    |-- PTE(38000) c0000000-f8000000 38000000 -rw
+    PDE(001) fac00000-fb000000 00400000 -rw
+    |-- PTE(000e0) faf00000-fafe0000 000e0000 urw
+    |-- PTE(00001) fafeb000-fafec000 00001000 -rw
+    --------------------- END ---------------------
+    check_vma_struct() succeeded!
+    page fault at 0x00000100: K/W [no page found].
+    page fault at 0x00000100: K/W [no page found].
+    ...
+```
+- 在正式开始本练习前，同以往类似，我希望从boot开始理清OS启动和初始化的步骤。在lab 3中，通过检查init/entry.S文件，可以看到本lab中对启动分页机制的设置和lab 2有所不同，体现在：
+    1. lab 2中，在汇编编写的entry.S中并没有启动分页机制，而是在段机制下运行，在调用C编写的kern_ini()后才进一步启动分页机制，页表和页目录表也是在C函数编写的程序中定义并填充的
+    2. lab 3中，在entry.S中直接定义好了的页目录表和页表，并在kern_entry中直接将页目录表物理地址写入%cr3寄存器，即
+        ```x86asm
+            movl $REALLOC(__boot_pgdir), %eax
+            movl %eax, %cr3
+        ```
+        需要注意的是，该页表中已经定义了`va 0 ~ 4M to pa 0 ~ 4M`和`va KERNBASE + (0 ~ 4M) to pa 0 ~ 4M`两种映射，其中前者为临时映射，作用与lab 2中相同
+    3. 随后直接开启页机制，并且通过`jmp`指令强制更新%eip为KERNBASE开始的虚拟地址（之前虚拟地址等于线性地址，而且由于GDT中段基址为0，因此也等于物理地址），这一更新操作如下，其中next为下条指令地址：
+        ```x86asm
+            leal next, %eax
+            jmp *%eax
+        ```
+    4. 在这之后，因为已经更新了%eip，因此取消临时映射，并建立调用栈调用kern_init()
+- 随后的步骤与lab 2相似，但在物理内存、中断、idt初始化后，需要进行虚拟存储、IDE磁盘和swap的初始化，这是本次实验需要完成的部分
 
 ### 练习3.1 给未被映射的地址映射上物理页
 
@@ -49,6 +51,7 @@
 
     5. 完成这一步后，可以看到如下结果，可见`check_vma_struct()`, `check_pgfault()`和`check_vmm()`已经成功，虚拟存储框架已经建立，但在具体处理swap时出现异常，这是下一个练习中涉及的内容：
         ```gdb
+            ...
             check_alloc_page() succeeded!
             check_pgdir() succeeded!
             check_boot_pgdir() succeeded!
@@ -105,74 +108,89 @@
 
 1. **原理简述**
     1. 关于地址
-        - 在完成first-fit物理内存分配算法后，若尝试`make qemu`，会显示在`check_pgdir`检查页目录表时出现关于`get_pte`的assertion failure，对应于本练习中对页表/页目录表的完善
-        - 在这一阶段中，段机制生效，各段base置为`-KERNBASE`即-0xC0000000，存在虚拟地址/线性地址/物理地址的差异，其关系为`virtual addr - 0xC0000000 = linear addr = physical addr`. 值得注意的是，此时代码中也做了相应区分，`pte_t`和`pdt_t`均为虚拟地址，一切可以做`*`运算的指针和函数形参中的指针类型均为虚拟地址；`uintptr_t`表示线性地址，也即此时的物理地址。虚拟地址和线性地址之间的相互转换可以简单地用Macro进行运算得到
-        - 另外需要考虑对Page类型到地址的转换。这一转换的核心是ppn，即physical page number，这一值由`page - pages`算得，其中pages为内存中已经分配的管理所有物理页信息的Page的数组（长度等于物理页数量），page为待求物理页对应的pages数组中的元素的指针（可能由alloc_page分配得到），其差值即为待求物理页的编号即ppn，再将物理页编号 ppn << PAGE_SIZE(12) 即得到物理地址，由此可以进一步将Page和线性地址和虚拟地址相联系
-        - 在实际代码执行过程中，虚拟地址到线性地址的转换由GDT隐式完成，传递给页表的地址均为线性地址，页表给出的地址为物理地址
-    2. 关于页目录表/页表
-        - 首先需要注意到地址的区别。在页目录的表项中包含的地址均为物理地址，而页表项中包含的地址也为物理地址
-        - 启动过程中，页目录表为一个page大小，其虚拟地址保存在`boot_pgdir`中。其中每一个表项长为1 byte，含有二级页表的基址（物理地址），每个二级页表也为一个page大小，含有其指向的物理页地址。页表和页目录表都是4k对齐的
-        - 获取线性地址对应页表项的方法是将线性地址分为三部分：PDX, PTX, OFFSET，使用PDX在页目录表中找到对应PDE，再从PDE中取出其高20位，即为二级页表的基址（物理地址），进一步通过PTX在二级页表中找到对应的页表项，将其地址转换为虚地址即可
+        
 2. **实现方法**
     - 根据框架注释中已经给出的模式，实现如下：
-        1. 获取页目录项pde，方法为通过`PDX`宏得到页目录项号，再将页目录指针（指向页目录的首项）加上这个编号即得到指向目的页目录项的指针，代码如下：
-            ```c
-            // (1) find page directory entry
-            size_t pdx = PDX(la);       // index of this la in page dir table
-            pde_t * pdep = pgdir + pdx; // NOTE: this is a virtual addr
-            ```
-        2. 检查页目录项，若显示对应的二级页表不存在（`*pdep & PTE_P`不为真），且在传入参数中指定了如不存在则新建，那么新建二级页表（若不需要新建，则直接返回NULL），方法为申请一个物理页，将其清零，并将该物理页的物理地址作为二级页表地址写入pde中，同时写入的还有权限控制，写入方法为直接取它们的按位或即可。代码如下：
-            ```c
-            // (2) check if entry is not present
-            if (!(*pdep & PTE_P)) {
-                // (3) check if creating is needed
-                if (!create) {
-                    return NULL;
-                }
-                // alloc page for page table
-                struct Page * pt_page =  alloc_page();
-                if (pt_page == NULL) {
-                    return NULL;
-                }
-
-                // (4) set page reference
-                set_page_ref(pt_page, 1);
-
-                // (5) get linear address of page
-                uintptr_t pt_addr = page2pa(pt_page);
-
-                // (6) clear page content using memset
-                memset(KADDR(pt_addr), 0, PGSIZE);
-
-                // (7) set page directory entry's permission
-                *pdep = (PDE_ADDR(pt_addr)) | PTE_U | PTE_W | PTE_P; // PDE_ADDR: get pa &= ~0xFFF
-            }
-            ```
-        3. 返回所求的pte，方法为先由`PTX`宏得到二级页表中页表项的编号，再获取二级页表的地址（虚拟地址），将指向该二级页表的指针加上页表项编号即为指向该页表项的指针，实现如下：
-            ```c
-            // (8) return page table entry
-            size_t ptx = PTX(la);   // index of this la in page dir table
-            uintptr_t pt_pa = PDE_ADDR(*pdep);
-            pte_t * ptep = (pte_t *)KADDR(pt_pa) + ptx;
-            return ptep;
-            ```
-    - 完成后，运行`make qemu`可以看到如下结果，可见通过了`get_pte`的检查，问题转移到了对page_ref即物理页引用计数的检查上，这涉及到下一个练习
+        
+    - 完成后，运行`make qemu`可以看到如下结果，可见通过了`check_swap()`的检查
         ```gdb
+            ...
             check_alloc_page() succeeded!
-            kernel panic at kern/mm/pmm.c:545:
-                assertion failed: page_ref(p2) == 0
-            Welcome to the kernel debug monitor!!
-            Type 'help' for a list of commands.
+            check_pgdir() succeeded!
+            check_boot_pgdir() succeeded!
+            -------------------- BEGIN --------------------
+            PDE(0e0) c0000000-f8000000 38000000 urw
+            |-- PTE(38000) c0000000-f8000000 38000000 -rw
+            PDE(001) fac00000-fb000000 00400000 -rw
+            |-- PTE(000e0) faf00000-fafe0000 000e0000 urw
+            |-- PTE(00001) fafeb000-fafec000 00001000 -rw
+            --------------------- END ---------------------
+            check_vma_struct() succeeded!
+            page fault at 0x00000100: K/W [no page found].
+            check_pgfault() succeeded!
+            check_vmm() succeeded.
+            ide 0:      10000(sectors), 'QEMU HARDDISK'.
+            ide 1:     262144(sectors), 'QEMU HARDDISK'.
+            SWAP: manager = fifo swap manager
+            BEGIN check_swap: count 1, total 31964
+            setup Page Table for vaddr 0X1000, so alloc a page
+            setup Page Table vaddr 0~4MB OVER!
+            set up init env for check_swap begin!
+            page fault at 0x00001000: K/W [no page found].
+            page fault at 0x00002000: K/W [no page found].
+            page fault at 0x00003000: K/W [no page found].
+            page fault at 0x00004000: K/W [no page found].
+            set up init env for check_swap over!
+            write Virt Page c in fifo_check_swap
+            write Virt Page a in fifo_check_swap
+            write Virt Page d in fifo_check_swap
+            write Virt Page b in fifo_check_swap
+            write Virt Page e in fifo_check_swap
+            page fault at 0x00005000: K/W [no page found].
+            swap_out: i 0, store page in vaddr 0x1000 to disk swap entry 2
+            write Virt Page b in fifo_check_swap
+            write Virt Page a in fifo_check_swap
+            page fault at 0x00001000: K/W [no page found].
+            swap_out: i 0, store page in vaddr 0x2000 to disk swap entry 3
+            swap_in: load disk swap entry 2 with swap_page in vadr 0x1000
+            write Virt Page b in fifo_check_swap
+            page fault at 0x00002000: K/W [no page found].
+            swap_out: i 0, store page in vaddr 0x3000 to disk swap entry 4
+            swap_in: load disk swap entry 3 with swap_page in vadr 0x2000
+            write Virt Page c in fifo_check_swap
+            page fault at 0x00003000: K/W [no page found].
+            swap_out: i 0, store page in vaddr 0x4000 to disk swap entry 5
+            swap_in: load disk swap entry 4 with swap_page in vadr 0x3000
+            write Virt Page d in fifo_check_swap
+            page fault at 0x00004000: K/W [no page found].
+            swap_out: i 0, store page in vaddr 0x5000 to disk swap entry 6
+            swap_in: load disk swap entry 5 with swap_page in vadr 0x4000
+            write Virt Page e in fifo_check_swap
+            page fault at 0x00005000: K/W [no page found].
+            swap_out: i 0, store page in vaddr 0x1000 to disk swap entry 2
+            swap_in: load disk swap entry 6 with swap_page in vadr 0x5000
+            write Virt Page a in fifo_check_swap
+            page fault at 0x00001000: K/R [no page found].
+            swap_out: i 0, store page in vaddr 0x2000 to disk swap entry 3
+            swap_in: load disk swap entry 2 with swap_page in vadr 0x1000
+            count is 0, total is 7
+            check_swap() succeeded!
+            ++ setup timer interrupts
+            100 ticks
+            100 ticks
+
         ```
 3. **回答问题**
-    - 请描述页目录项（Pag Director Entry）和页表（Page Table Entry）中每个组成部分的含义和以及对ucore而言的潜在用处
+    - 如果要在ucore上实现"extended clock页替换算法"请给你的设计方案，现有的swap_manager框架是否足以支持在ucore中实现此算法？如果是，请给你的设计方案。如果不是，请给出你的新的扩展和基此扩展的设计方案。并需要回答如下问题:
+        - 需要被换出的页的特征是什么？
+        - 在ucore中如何判断具有这样特征的页？
+        - 何时进行换入和换出操作？
         > - PDE：高20位表示二级页表基址的高20位；第3位为PTE_U，置1表示用户可以访问；第2位为PTE_W，置1表示该二级页表中各页可写；第1位为PTE_P，置1表示二级页表存在
         > - PTE：高20位表示物理页基址的高20位；第3位为PTE_U，置1表示用户可以访问；第2位为PTE_W，置1表示该页可写；第1位为PTE_P，置1表示该物理页存在于内存中
         > - 潜在用处：各控制位均有潜在用处，PTE_U用于对不同内存的权限控制，保护核心代码和数据；PTE_W可以用于实现只读内存空间；对于页目录表，PTE_P可以使未用到的二级页表不必存在于内存中，减少空间开销，对于二级页表，PTE_P可以支持虚拟存储技术，允许部分页被替换到外存中，解决物理内存不足的问题。
-    - 如果ucore执行过程中访问内存，出现了页访问异常，请问硬件要做哪些事情？
-        > 出现页访问异常时，如果在实现了虚拟存储情况下，若页不存在则触发`PAGE FAULT`异常，硬件要负责先检查异常编号，通过tss找到内核栈位置，保存现场（将eflags，eip，cs寄存器和错误码压栈，如果涉及特权级切换还需要将ss和esp寄存器压栈），然后转入对缺页异常的处理例程（软件部分）；软件处理结束后（可能分配物理页/将物理页从外存换入/什么也没做），再次交给硬件，硬件会再次尝试执行之前触发`PAGE FAULT`的指令
 
-### 练习2.3 释放某虚地址所在的页并取消对应二级页表项的映射
+
+### 练习2.x 实现识别dirty bit的 extended clock页替换算法
 
 1. **原理简述**
     - 在维护页表时，需要注意与pages数组的结合。对于每个进程都有一套页表，而且不同页表项可能指向同一物理页，这意味着一个物理页可能被若干个页表项引用，因此对于pages管理的每一个物理页，都有一个“**引用计数**”
@@ -253,44 +271,7 @@
         100 ticks
         100 ticks
     ```
-3. **回答问题**
-    - 数据结构Page的全局变量（其实是一个数组）的每一项与页表中的页目录项和页表项有无对应关系？如果有，其对应关系是啥？
-        > - 正如前文多次提到的，Page结构的pages数组用于管理实际物理页，每个元素对应于一个物理页，由于物理页与页表/页目录表的对应关系，pages项与页表项/页目录表项也存在对应关系
-        > - 这种关系同物理页和页表项的关系一样，也是一对多的关系，每个pages中的项对应于一个物理页（编号也是一一对应，即第i个pages项对应于第i个物理页），也就对应于所有引用该物理页的页表项，由此也对应到了包含该页表项的二级页表对应的页目录表项
-        > - 从数值关系来讲，假设某一虚拟地址已经分配了物理页，则其高10位对应一页目录项，该项高20位左移12位得到二级页表基址，虚拟地址的下一个10位为二级页表中页表项编号，这一页表项高20位左移12位为物理页地址，这一地址右移12位（相当于直接取出页表项高20位）即得到该物理页编号ppn，这也是该物理页对应的pages项的下标，可以直接用pages[ppn]得到该项
-        > - 事实上，前述流程可以直接用`struct Page * pte2page(pte_t pte)`函数实现
-    - 如果希望虚拟地址与物理地址相等，则需要如何修改lab2，完成此事？
-        > - 在实现分页机制后，虚拟地址/线性地址/物理地址关系为`virtual addr = linear addr = physical addr + 0xC0000000`，这里0xC0000000即`KERNBASE`，这种对应关系是在`pmm_init`中通过调用`boot_map_segment(boot_pgdir, KERNBASE, KMEMSIZE, 0, PTE_W)`对页表进行内存映射实现的，这将虚地址KERNBASE映射到了物理地址的0x0位置
-        > - 因此，实现步骤如下：
-        >   1. 改为`boot_map_segment(boot_pgdir, 0, KMEMSIZE, 0, PTE_W)`即可实现页表中虚拟地址等于物理地址的映射
-        >   2. 但需要注意的是，事实上OS kernel仍然处于物理内存的0x0开始的空间，而gcc编译后的OS kernel中虚拟地址为0xC0000000开始的空间，在建立虚拟地址等于物理地址的映射后，必须解决OS kernel地址映射正确的问题，即将OS kernel所在的页表中的地址全部映射到物理地址0x0的页，这一实现需要将原有 ~~`boot_pgdir[0] = boot_pgdir[PDX(KERNBASE)]`~~ 改为`boot_pgdir[PDX(KERNBASE)] = boot_pgdir[0]`. 当然，这样带来的问题是，boot_pgdir[0]中的虚拟地址将无法使用，否则会与kernel冲突，这算是这种实现方式下“虚拟地址=物理地址”的一个例外
-        >   3. 此外需要去掉 ~~`boot_pgdir[0] = 0`~~ 的恢复操作，而且需要在`check_boot_pgdir(void)`中注释掉相应的 ~~`assert(boot_pgdir[0] == 0)`~~ 检查
-        > - 完成上述步骤后即可执行`make qemu`运行，实现效果如下，可以看到页表项的变化：
-        >    ```gdb
-        >    memory management: default_pmm_manager
-        >    e820map:
-        >    memory: 0009fc00, [00000000, 0009fbff], type = 1.
-        >    memory: 00000400, [0009fc00, 0009ffff], type = 2.
-        >    memory: 00010000, [000f0000, 000fffff], type = 2.
-        >    memory: 07ee0000, [00100000, 07fdffff], type = 1.
-        >    memory: 00020000, [07fe0000, 07ffffff], type = 2.
-        >    memory: 00040000, [fffc0000, ffffffff], type = 2.
-        >    check_alloc_page() succeeded!
-        >    check_pgdir() succeeded!
-        >    check_boot_pgdir() succeeded!
-        >    -------------------- BEGIN --------------------
-        >    PDE(0df) 00400000-38000000 37c00000 urw
-        >    |-- PTE(37c00) 00400000-38000000 37c00000 -rw
-        >    PDE(001) c0000000-c0400000 00400000 urw
-        >    |-- PTE(00400) c0000000-c0400000 00400000 -rw
-        >    PDE(001) fac00000-fb000000 00400000 -rw
-        >    |-- PTE(000df) fac01000-face0000 000df000 urw
-        >    |-- PTE(00001) faf00000-faf01000 00001000 urw
-        >    |-- PTE(00001) fafeb000-fafec000 00001000 -rw
-        >    --------------------- END ---------------------
-        >    ++ setup timer interrupts
-        >    100 ticks
-        >    ```
+
 
 ## 2. 标准答案对比
 
