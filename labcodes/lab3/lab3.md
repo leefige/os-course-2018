@@ -46,9 +46,31 @@
 
 ### 练习3.1 给未被映射的地址映射上物理页
 
-1. **原理与实现**
-    1. whart
-
+1. **原理简述**
+    1. 现在我们已经拥有的基础是对物理内存的管理和对页表/页目录表的管理，以及对异常/中断的处理机制；虚拟内存管理就是在这二者基础上建立的，一方面，利用虚拟地址得到物理地址的对应关系由页表实现，另一方面，通过触发Page Fault异常，可以实现将不在物理内存中的页换入物理内存
+    2. 对虚拟内存的管理类似对物理内存的管理，都是建立在连续地址空间基础之上的，用来管理一片连续虚拟地址的结构为`struct vma_struct`，定义如下：
+        ```c
+            struct vma_struct {
+                struct mm_struct *vm_mm; // 虚拟内存管理器
+                uintptr_t vm_start;      // virtual memory area的首地址
+                uintptr_t vm_end;        // virtual memory area的未地址，vma区间为[start, end)
+                uint32_t vm_flags;       // flags of vma
+                list_entry_t list_link;  // 链表节点
+            };
+        ```
+    3. 在每个`vma_struct`中都有一个指向`mm_struct`的指针vm_mm，而且属于同一PDT（页目录表）的vma，也即对应于同一进程（尽管在lab 3中还没有实现进程管理）的vma，都指向同一个vm_mm，这个vm_mm就是用来管理这一进程的所有虚拟地址的虚拟内存管理器，其定义如下：
+        ```c
+            struct mm_struct {
+                list_entry_t mmap_list;        // 连接各vma的链表的头节点
+                struct vma_struct *mmap_cache; // vma的查找缓存，根据实验指导书，可以将查找效率提高30%
+                pde_t *pgdir;                  // 该虚拟内存管理器对应的页目录表（也就是该进程的页目录表）
+                int map_count;                 // vma计数
+                void *sm_priv;                 // 由交换管理器swap manager使用的数据
+            };
+        ```
+    4. 可以看到，在`mm_struct`中还定义了用于交换的swap manager私有数据`sm_priv`，这部分相关内容将在下一个练习中涉及
+    
+2. **实现方法**
     5. 完成这一步后，可以看到如下结果，可见`check_vma_struct()`, `check_pgfault()`和`check_vmm()`已经成功，虚拟存储框架已经建立，但在具体处理swap时出现异常，这是下一个练习中涉及的内容：
         ```gdb
             ...
