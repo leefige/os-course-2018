@@ -74,7 +74,7 @@
         - 对于每一个合法的虚拟地址，都会有相应的vma维护，而同一页目录表下的所有vma（即所有合法虚拟地址）则由更上层的vm_mm维护：
             - vma维护了每一段连续虚拟地址空间的地址范围以及访问权限、标志位
             - vm_mm维护了所有vma组成的链表，vma数量，所属的页目录表以及换入换出相关数据
-        - 在实际访存时，如果正常得到标志为存在且权限合法的物理地址，则直接访存；否则会触发PAGE FAULT，这就进入虚拟内存管理和PAGE FAULT处理相关步骤：
+        - 在实际访存时，如果正常得到标志为存在且权限合法的物理地址，则直接访存；否则会触发PAGE FAULT，这就进入<span id="steps"></span>**PAGE FAULT处理相关步骤**：
             1. 选择出错虚拟地址所属PDT对应的vm_mm，将PAGE FAULT错误码和%cr2寄存器中的出错虚拟地址
             2. 检查要访存的虚拟地址是否合法、具有何种权限要求、是否可访问
             3. 如果合法、可访问，但地址所在的物理页不在内存中，则将其从磁盘换入
@@ -157,11 +157,47 @@
 ### 练习3.2 补充完成基于FIFO的页面替换算法
 
 1. **原理简述**
-    1. 关于地址
+    1. 承接练习1中所述的[PAGE FAULT处理相关步骤](#steps)，在`do_pgfault()`判断需要目标页被换出到磁盘后，需要将页换入
+    2. 页换入时，调用`swap_in()`将磁盘中存储的页内容写入物理内存，并得到对应的物理页Page指针，接着调用`page_insert()`建立物理页到对应虚页的映射关系，然后将这一被换入页利用`swap_map_swappable()`标注为可换出
+    3. 这里需要注意的是，在物理页换入后，要将物理页Page的`pra_vaddr`属性写为对应虚地址，这是为了在后续换出时使用
+    4. 在具体的换入换出算法中，练习中实现了FIFO算法，该算法通过维护一个链表，每次一个页被设置为可换出时，将它加入这个链表尾部，而每次需要将一个页换出时，从这个链表的头部取出一个页换出，这样就实现了先进先出的置换算法
+    5. 具体地，在设置一个页可换出时使用`_fifo_map_swappable()`，该函数将一个页Page的`pra_page_link`插入上述链表尾部；在获取可换出页时，使用`_fifo_swap_out_victim()`，该函数取出链表头的页，将其从该链表中删除，并将对应的物理页Page返回到目标中，即找到了被淘汰的页
         
 2. **实现方法**
-    - 根据框架注释中已经给出的模式，实现如下：
-        
+    - 首先在`do_pgfault()`中，地址合法、可访问且判断PTE不为0，说明该页被换出到磁盘，那么调用`swap_in()`将其换入、建立虚拟地址映射、标记为可换出，实现如下：
+        ```c
+            if(swap_init_ok) {
+                struct Page *page=NULL;
+                assert(swap_in(mm, addr, &page) == 0);
+                page->pra_vaddr = addr;
+                page_insert(mm->pgdir, page, addr, perm);
+                swap_map_swappable(mm, addr, page, 1);
+            }
+        ```
+    - 在具体的置换算法`swap_fifo.c`中，需要完善`_fifo_map_swappable()`和`_fifo_swap_out_victim()`。其中`_fifo_map_swappable()`根据传入参数`swap_in`判断是否是被换入页（存在不是的情况，如试图换出一个页失败时），如果是，则直接将其插入链表尾，也即双向列表的head之前；若不是，则还需先找到原来的节点，将其删除，再重新插入链表尾。实现如下：
+        ```c
+            if (swap_in == 0) {
+                list_entry_t *le_prev = head, *le;
+                while ((le = list_next(le_prev)) != head) {
+                    if (le == entry) {
+                        list_del(le);
+                        break;
+                    }
+                    le_prev = le;
+                }
+            }
+            list_add_before(head, entry);
+        ```
+    - 在`_fifo_swap_out_victim()`中，要取出链表第一个节点，将其删除，并将它返回到传入的指针，实现如下：
+        ```c
+            list_entry_t *front = list_next(head);
+            assert(front != head);
+            list_del(front);
+            //(2)  assign the value of *ptr_page to the addr of this page
+            struct Page *page = le2page(front, pra_page_link);
+            *ptr_page = page;
+        ```
+        需要说明的是，我在这里遇到的一个问题是在`le2page()`中因为混淆，误把第二个参数写成了page_link（实际为pra_page_link），导致无法将链表项返回为正确的page，这一bug调试花费我很长时间，不过也说明这两者命名可能不够有区分度，导致有混淆的可能
     - 完成后，运行`make qemu`可以看到如下结果，可见通过了`check_swap()`的检查
         ```gdb
             ...
