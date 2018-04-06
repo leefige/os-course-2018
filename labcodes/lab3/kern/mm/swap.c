@@ -38,9 +38,9 @@ swap_init(void)
         panic("bad max_swap_offset %08x.\n", max_swap_offset);
     }
      
-    // LAB3: set sm as fifo
-    // sm = &swap_manager_fifo;
-    sm = &swap_manager_enclock;
+    // LAB3: set sm as FIFO/ENHANCED CLOCK
+    sm = &swap_manager_fifo;
+    // sm = &swap_manager_enclock;
     int r = sm->init();
     
     if (r == 0)
