@@ -3,6 +3,12 @@
 
 #include <swap.h>
 
+struct enclock_struct sm_priv_enclock =
+{
+    list_entry_t* head;
+    list_entry_t** clock;
+};
+
 extern struct swap_manager swap_manager_enclock;
 
 #endif

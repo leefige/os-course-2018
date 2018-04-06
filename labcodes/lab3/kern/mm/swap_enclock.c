@@ -40,8 +40,8 @@ _enclock_init_mm(struct mm_struct *mm)
 static int
 _enclock_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int swap_in)
 {
-    list_entry_t *head = (list_entry_t*) mm->sm_priv->head;
-    list_entry_t *clock_ptr = *((list_entry_t**) mm->sm_priv->clock);
+    list_entry_t *head = ((struct enclock_struct*) mm->sm_priv)->head;
+    list_entry_t *clock_ptr = *(((struct enclock_struct*) mm->sm_priv)->clock);
     if (head == clock_ptr) {
         cprintf("Got head == clock ptr in swappable\n");
     }
@@ -72,8 +72,8 @@ _enclock_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, 
 static int
 _enclock_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_tick)
 {
-    list_entry_t *head = (list_entry_t*) mm->sm_priv->head;
-    list_entry_t *clock_ptr = *((list_entry_t**) mm->sm_priv->clock);
+    list_entry_t *head = ((struct enclock_struct*) mm->sm_priv)->head;
+    list_entry_t *clock_ptr = *(((struct enclock_struct*) mm->sm_priv)->clock);
     if (head == clock_ptr) {
         cprintf("Got head == clock ptr in victim\n");
     }
@@ -105,7 +105,7 @@ _enclock_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_t
     assert(page != NULL);
     *ptr_page = page;
     //(2)update clock
-    *((list_entry_t **)(mm->sm_priv->clock)) = le_prev;
+    *(((struct enclock_struct*) mm->sm_priv)->clock) = le_prev;
     return 0;
 }
 
