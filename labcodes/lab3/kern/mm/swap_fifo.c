@@ -82,8 +82,8 @@ _fifo_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_tick
     assert(front != head);
     list_del(front);
     //(2)  assign the value of *ptr_page to the addr of this page
-    struct Page *page = NULL;
-    assert(page = le2page(front, pra_page_link) != NULL);
+    struct Page *page = le2page(front, pra_page_link);
+    assert(page != NULL);
     *ptr_page = page;
     return 0;
 }

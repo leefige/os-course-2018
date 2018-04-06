@@ -2,7 +2,7 @@
 
 Special kernel symbols:
   entry  0xc0100036 (phys)
-  etext  0xc01084fe (phys)
+  etext  0xc010851a (phys)
   edata  0xc0123000 (phys)
   end    0xc012415c (phys)
 Kernel executable memory footprint: 145KB
@@ -16,9 +16,9 @@ ebp:0xc011ff98 eip:0xc01000e6 args:0x00000000 0xffff0000 0xc011ffc4 0x0000002a
     kern/init/init.c:62: grade_backtrace1+27
 ebp:0xc011ffb8 eip:0xc0100103 args:0x00000000 0xc0100036 0xffff0000 0xc0100079
     kern/init/init.c:67: grade_backtrace0+19
-ebp:0xc011ffd8 eip:0xc0100124 args:0x00000000 0x00000000 0x00000000 0xc0108500
+ebp:0xc011ffd8 eip:0xc0100124 args:0x00000000 0x00000000 0x00000000 0xc0108520
     kern/init/init.c:72: grade_backtrace+26
-ebp:0xc011fff8 eip:0xc0100086 args:0xc0108700 0xc0108708 0xc0100d04 0xc0108727
+ebp:0xc011fff8 eip:0xc0100086 args:0xc0108720 0xc0108728 0xc0100d04 0xc0108747
     kern/init/init.c:32: kern_init+79
 memory management: default_pmm_manager
 e820map:
