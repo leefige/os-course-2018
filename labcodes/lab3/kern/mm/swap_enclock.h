@@ -3,8 +3,7 @@
 
 #include <swap.h>
 
-struct enclock_struct sm_priv_enclock =
-{
+struct enclock_struct {
     list_entry_t* head;
     list_entry_t** clock;
 };

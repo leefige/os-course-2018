@@ -42,9 +42,9 @@ _enclock_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, 
 {
     list_entry_t *head = ((struct enclock_struct*) mm->sm_priv)->head;
     list_entry_t *clock_ptr = *(((struct enclock_struct*) mm->sm_priv)->clock);
-    if (head == clock_ptr) {
-        cprintf("Got head == clock ptr in swappable\n");
-    }
+    // if (head == clock_ptr) {
+    //     cprintf("Got head == clock ptr in swappable\n");
+    // }
     list_entry_t *entry=&(page->pra_page_link);
     
     assert(entry != NULL && head != NULL);
@@ -74,28 +74,47 @@ _enclock_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_t
 {
     list_entry_t *head = ((struct enclock_struct*) mm->sm_priv)->head;
     list_entry_t *clock_ptr = *(((struct enclock_struct*) mm->sm_priv)->clock);
-    if (head == clock_ptr) {
-        cprintf("Got head == clock ptr in victim\n");
-    }
+    // if (head == clock_ptr) {
+    //     cprintf("Got head == clock ptr in victim\n");
+    // }
     assert(head != NULL);
     assert(in_tick==0);
     /* Select the victim */
     /*LAB3 CHALLENGE 2: 2015010062*/ 
     //(1)  iterate list searching for victim
     list_entry_t *le_prev = clock_ptr, *le;
-    while ((le = list_next(le_prev)) != head) {
-        pte_t* ptep = get_pte(mm->pgdir, addr, 0);
-        if (*ptep & PTE_A != 0) {
+    int cnt = 0;
+    while (le = list_next(le_prev)) {
+        assert(cnt < 3);
+        if (le == head) {
+            cnt ++;
+            le_prev = le;
+            continue;
+        }
+        struct Page *page = le2page(le, pra_page_link);
+        pte_t* ptep = get_pte(mm->pgdir, page->pra_vaddr, 0);
+        _enclock_print_pte(mm);
+        // cprintf("BEFORE: va: 0x%x, pte: 0x%x A: 0x%x, D: 0x%x\n", page->pra_vaddr, *ptep, *ptep & PTE_A, *ptep & PTE_D);
+        if (*ptep & PTE_A) {
             // set access to 0
             *ptep &= ~PTE_A;
+            tlb_invalidate(mm->pgdir, page->pra_vaddr);
         } else {
-            if (*ptep & PTE_W != 0) {
+            // cprintf("now a == 0\n");
+            if (*ptep & PTE_D) {
+                if (swapfs_write((page->pra_vaddr / PGSIZE + 1) << 8, page) == 0) {
+                    cprintf("write 0x%x to disk\n", page->pra_vaddr);
+                }
                 // set dirty to 0
-                *ptep &= ~PTE_W;
+                *ptep = *ptep & ~PTE_D;
+                tlb_invalidate(mm->pgdir, page->pra_vaddr);
             } else {
+                // cprintf("AFTER: le: %p, pte: 0x%x A: 0x%x, D: 0x%x\n", le, *ptep, *ptep & PTE_A, *ptep & PTE_D);
+                cprintf("victim is 0x%x\n", page->pra_vaddr);
                 break;
             }
         }
+        // cprintf("AFTER: le: %p, pte: 0x%x A: 0x%x, D: 0x%x\n", le, *ptep, *ptep & PTE_A, *ptep & PTE_D);
         le_prev = le;        
     }
     assert(le != head);
@@ -109,8 +128,31 @@ _enclock_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_t
     return 0;
 }
 
+void
+_enclock_reset_pte(pde_t* pgdir) {
+    cprintf("PTEs resetting...\n");
+    for(unsigned int va = 0x1000; va <= 0x4000; va += 0x1000) {
+        pte_t* ptep = get_pte(pgdir, va, 0);
+        *ptep = *ptep & ~PTE_A;
+        *ptep = *ptep & ~PTE_D;
+        tlb_invalidate(pgdir, va);
+    }
+    cprintf("PTEs reseted!\n");
+}
+
+void
+_enclock_print_pte(struct mm_struct *mm) {
+    cprintf("-------------------------\n");
+    for(unsigned int va = 0x1000; va <= 0x4000; va += 0x1000) {
+        pte_t* ptep = get_pte(mm->pgdir, va, 0);
+        cprintf("va: 0x%x, pte: 0x%x A: 0x%x, D: 0x%x\n", va, *ptep, *ptep & PTE_A, *ptep & PTE_D);
+    }
+    cprintf("-------------------------\n");
+}
+
 static int
 _enclock_check_swap(void) {
+    _enclock_reset_pte(KADDR(((pde_t *)rcr3())));
     cprintf("read Virt Page c in enclock_check_swap\n");
     unsigned char tmp = *(unsigned char *)0x3000;
     assert(pgfault_num==4);
