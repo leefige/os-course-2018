@@ -124,7 +124,7 @@ _enclock_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_t
     assert(page != NULL);
     *ptr_page = page;
     //(2)update clock
-    *(((struct enclock_struct*) mm->sm_priv)->clock) = le_prev;
+    *(((struct enclock_struct*) mm->sm_priv)->clock) = list_next(le_prev);
     return 0;
 }
 

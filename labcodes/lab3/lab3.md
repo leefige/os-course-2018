@@ -277,6 +277,148 @@
         > - 在ucore中，可以通过PTE的标志位PTE_A（访问位）和PTE_D（修改位）进行判断
         > - 换入：在访存错误触发PAGE FAULT，经过检查发现目标页被换出到磁盘时进行；换出：消极策略，在试图分配新页时发现物理内存不足时进行
 
+- 实现结果如下，check中顺序与PPT一致，并且打印了每次时钟指针转向下一个时的4个PTE情况，和PPT中对比可见PAGE FAULT情况一致（第一次victim为0x3000即c，第二次victim为0x4000即d，第三次victim为0x2000即b），说明实现基本正确：
+    ```c
+        -------------------- BEGIN --------------------
+        PDE(0e0) c0000000-f8000000 38000000 urw
+        |-- PTE(38000) c0000000-f8000000 38000000 -rw
+        PDE(001) fac00000-fb000000 00400000 -rw
+        |-- PTE(000e0) faf00000-fafe0000 000e0000 urw
+        |-- PTE(00001) fafeb000-fafec000 00001000 -rw
+        --------------------- END ---------------------
+        check_vma_struct() succeeded!
+        page fault at 0x00000100: K/W [no page found].
+        check_pgfault() succeeded!
+        check_vmm() succeeded.
+        ide 0:      10000(sectors), 'QEMU HARDDISK'.
+        ide 1:     262144(sectors), 'QEMU HARDDISK'.
+        SWAP: manager = enclock swap manager
+        BEGIN check_swap: count 1, total 31963
+        setup Page Table for vaddr 0X1000, so alloc a page
+        setup Page Table vaddr 0~4MB OVER!
+        set up init env for check_swap begin!
+        page fault at 0x00001000: K/W [no page found].
+        page fault at 0x00002000: K/W [no page found].
+        page fault at 0x00003000: K/W [no page found].
+        page fault at 0x00004000: K/W [no page found].
+        set up init env for check_swap over!
+        PTEs resetting...
+        PTEs reseted!
+        read Virt Page c in enclock_check_swap
+        write Virt Page a in enclock_check_swap
+        read Virt Page d in enclock_check_swap
+        write Virt Page b in enclock_check_swap
+        write Virt Page e in enclock_check_swap
+        page fault at 0x00005000: K/W [no page found].
+        -------------------------
+        va: 0x1000, pte: 0x308067 A: 0x20, D: 0x40
+        va: 0x2000, pte: 0x309067 A: 0x20, D: 0x40
+        va: 0x3000, pte: 0x30a027 A: 0x20, D: 0x0
+        va: 0x4000, pte: 0x30b027 A: 0x20, D: 0x0
+        -------------------------
+        -------------------------
+        va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
+        va: 0x2000, pte: 0x309067 A: 0x20, D: 0x40
+        va: 0x3000, pte: 0x30a027 A: 0x20, D: 0x0
+        va: 0x4000, pte: 0x30b027 A: 0x20, D: 0x0
+        -------------------------
+        -------------------------
+        va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
+        va: 0x2000, pte: 0x309047 A: 0x0, D: 0x40
+        va: 0x3000, pte: 0x30a027 A: 0x20, D: 0x0
+        va: 0x4000, pte: 0x30b027 A: 0x20, D: 0x0
+        -------------------------
+        -------------------------
+        va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
+        va: 0x2000, pte: 0x309047 A: 0x0, D: 0x40
+        va: 0x3000, pte: 0x30a007 A: 0x0, D: 0x0
+        va: 0x4000, pte: 0x30b027 A: 0x20, D: 0x0
+        -------------------------
+        -------------------------
+        va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
+        va: 0x2000, pte: 0x309047 A: 0x0, D: 0x40
+        va: 0x3000, pte: 0x30a007 A: 0x0, D: 0x0
+        va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
+        -------------------------
+        write 0x1000 to disk
+        -------------------------
+        va: 0x1000, pte: 0x308007 A: 0x0, D: 0x0
+        va: 0x2000, pte: 0x309047 A: 0x0, D: 0x40
+        va: 0x3000, pte: 0x30a007 A: 0x0, D: 0x0
+        va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
+        -------------------------
+        write 0x2000 to disk
+        -------------------------
+        va: 0x1000, pte: 0x308007 A: 0x0, D: 0x0
+        va: 0x2000, pte: 0x309007 A: 0x0, D: 0x0
+        va: 0x3000, pte: 0x30a007 A: 0x0, D: 0x0
+        va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
+        -------------------------
+        victim is 0x3000
+        swap_out: i 0, store page in vaddr 0x3000 to disk swap entry 4
+        read Virt Page b in enclock_check_swap
+        write Virt Page a in enclock_check_swap
+        read Virt Page b in enclock_check_swap
+        read Virt Page c in enclock_check_swap
+        page fault at 0x00003000: K/R [no page found].
+        -------------------------
+        va: 0x1000, pte: 0x308067 A: 0x20, D: 0x40
+        va: 0x2000, pte: 0x309027 A: 0x20, D: 0x0
+        va: 0x3000, pte: 0x400 A: 0x0, D: 0x0
+        va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
+        -------------------------
+        -------------------------
+        va: 0x1000, pte: 0x308067 A: 0x20, D: 0x40
+        va: 0x2000, pte: 0x309027 A: 0x20, D: 0x0
+        va: 0x3000, pte: 0x400 A: 0x0, D: 0x0
+        va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
+        -------------------------
+        -------------------------
+        va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
+        va: 0x2000, pte: 0x309027 A: 0x20, D: 0x0
+        va: 0x3000, pte: 0x400 A: 0x0, D: 0x0
+        va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
+        -------------------------
+        -------------------------
+        va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
+        va: 0x2000, pte: 0x309007 A: 0x0, D: 0x0
+        va: 0x3000, pte: 0x400 A: 0x0, D: 0x0
+        va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
+        -------------------------
+        victim is 0x4000
+        swap_out: i 0, store page in vaddr 0x4000 to disk swap entry 5
+        swap_in: load disk swap entry 4 with swap_page in vadr 0x3000
+        read Virt Page d in enclock_check_swap
+        page fault at 0x00004000: K/R [no page found].
+        -------------------------
+        va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
+        va: 0x2000, pte: 0x309007 A: 0x0, D: 0x0
+        va: 0x3000, pte: 0x30b027 A: 0x20, D: 0x0
+        va: 0x4000, pte: 0x500 A: 0x0, D: 0x0
+        -------------------------
+        -------------------------
+        va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
+        va: 0x2000, pte: 0x309007 A: 0x0, D: 0x0
+        va: 0x3000, pte: 0x30b007 A: 0x0, D: 0x0
+        va: 0x4000, pte: 0x500 A: 0x0, D: 0x0
+        -------------------------
+        write 0x1000 to disk
+        -------------------------
+        va: 0x1000, pte: 0x308007 A: 0x0, D: 0x0
+        va: 0x2000, pte: 0x309007 A: 0x0, D: 0x0
+        va: 0x3000, pte: 0x30b007 A: 0x0, D: 0x0
+        va: 0x4000, pte: 0x500 A: 0x0, D: 0x0
+        -------------------------
+        victim is 0x2000
+        swap_out: i 0, store page in vaddr 0x2000 to disk swap entry 3
+        swap_in: load disk swap entry 5 with swap_page in vadr 0x4000
+        count is 0, total is 7
+        check_swap() succeeded!
+        ++ setup timer interrupts
+        100 ticks
+        100 ticks
+        ```
+
 ## 2. 标准答案对比
 
 1. **练习1** ：
