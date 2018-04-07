@@ -336,8 +336,7 @@
                 struct Page *page = le2page(le, pra_page_link);
                 // 获取PTE
                 pte_t* ptep = get_pte(mm->pgdir, page->pra_vaddr, 0);
-                // 打印PTE信息，注意这里被打印的地址为hard code （0x1000~0x4000），需要配合定义好的check函数
-                _enclock_print_pte(mm);
+                _enclock_print_pte(ptep, page->pra_vaddr); // 打印PTE信息
                 // PTE_A != 0
                 if (*ptep & PTE_A) {
                     // set access to 0
@@ -380,16 +379,11 @@
                 cprintf("PTEs reseted!\n");
             }
         ```
-        此外，为了方面查看指针每次移动后，PTE的变化情况，定义了`_enclock_print_pte()`函数打印4个页的PTE情况，不过需要注意这里是hard code的，如果要复用该方法，需要在`swap_out_victim()`中注释掉该函数的调用。定义如下：
+        此外，为了方面查看指针每次移动后，PTE的变化情况，定义了`_enclock_print_pte()`函数打印4个页的PTE情况。定义如下：
         ```c
             void
             _enclock_print_pte(struct mm_struct *mm) {
-                cprintf("-------------------------\n");
-                for(unsigned int va = 0x1000; va <= 0x4000; va += 0x1000) {
-                    pte_t* ptep = get_pte(mm->pgdir, va, 0);
-                    cprintf("va: 0x%x, pte: 0x%x A: 0x%x, D: 0x%x\n", va, *ptep, *ptep & PTE_A, *ptep & PTE_D);
-                }
-                cprintf("-------------------------\n");
+                cprintf("va: 0x%x, pte: 0x%x A: 0x%x, D: 0x%x\n", va, *ptep, *ptep & PTE_A, *ptep & PTE_D);
             }
         ```
     - 要使用该方法，需要在`swap.c`中将sm赋值为swap_manager_enclock，即`sm = &swap_manager_enclock`. 实现结果如下，check中顺序与PPT一致，并且打印了每次时钟指针转向下一个时的4个PTE情况，和PPT中对比可见PAGE FAULT情况一致（新增3次PAGE FAULT，第一次victim为0x3000即c，第二次victim为0x4000即d，第三次victim为0x2000即b），说明实现基本正确：
@@ -407,7 +401,7 @@
             check_vmm() succeeded.
             ide 0:      10000(sectors), 'QEMU HARDDISK'.
             ide 1:     262144(sectors), 'QEMU HARDDISK'.
-            SWAP: manager = enclock swap manager
+            SWAP: manager = extended clock swap manager
             BEGIN check_swap: count 1, total 31963
             setup Page Table for vaddr 0X1000, so alloc a page
             setup Page Table vaddr 0~4MB OVER!
@@ -425,50 +419,15 @@
             write Virt Page b in enclock_check_swap
             write Virt Page e in enclock_check_swap
             page fault at 0x00005000: K/W [no page found].
-            -------------------------
             va: 0x1000, pte: 0x308067 A: 0x20, D: 0x40
             va: 0x2000, pte: 0x309067 A: 0x20, D: 0x40
             va: 0x3000, pte: 0x30a027 A: 0x20, D: 0x0
             va: 0x4000, pte: 0x30b027 A: 0x20, D: 0x0
-            -------------------------
-            -------------------------
             va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
-            va: 0x2000, pte: 0x309067 A: 0x20, D: 0x40
-            va: 0x3000, pte: 0x30a027 A: 0x20, D: 0x0
-            va: 0x4000, pte: 0x30b027 A: 0x20, D: 0x0
-            -------------------------
-            -------------------------
-            va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
-            va: 0x2000, pte: 0x309047 A: 0x0, D: 0x40
-            va: 0x3000, pte: 0x30a027 A: 0x20, D: 0x0
-            va: 0x4000, pte: 0x30b027 A: 0x20, D: 0x0
-            -------------------------
-            -------------------------
-            va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
-            va: 0x2000, pte: 0x309047 A: 0x0, D: 0x40
-            va: 0x3000, pte: 0x30a007 A: 0x0, D: 0x0
-            va: 0x4000, pte: 0x30b027 A: 0x20, D: 0x0
-            -------------------------
-            -------------------------
-            va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
-            va: 0x2000, pte: 0x309047 A: 0x0, D: 0x40
-            va: 0x3000, pte: 0x30a007 A: 0x0, D: 0x0
-            va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
-            -------------------------
             write 0x1000 to disk
-            -------------------------
-            va: 0x1000, pte: 0x308007 A: 0x0, D: 0x0
             va: 0x2000, pte: 0x309047 A: 0x0, D: 0x40
-            va: 0x3000, pte: 0x30a007 A: 0x0, D: 0x0
-            va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
-            -------------------------
             write 0x2000 to disk
-            -------------------------
-            va: 0x1000, pte: 0x308007 A: 0x0, D: 0x0
-            va: 0x2000, pte: 0x309007 A: 0x0, D: 0x0
             va: 0x3000, pte: 0x30a007 A: 0x0, D: 0x0
-            va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
-            -------------------------
             victim is 0x3000
             swap_out: i 0, store page in vaddr 0x3000 to disk swap entry 4
             read Virt Page b in enclock_check_swap
@@ -476,54 +435,19 @@
             read Virt Page b in enclock_check_swap
             read Virt Page c in enclock_check_swap
             page fault at 0x00003000: K/R [no page found].
-            -------------------------
+            va: 0x5000, pte: 0x30a067 A: 0x20, D: 0x40
             va: 0x1000, pte: 0x308067 A: 0x20, D: 0x40
             va: 0x2000, pte: 0x309027 A: 0x20, D: 0x0
-            va: 0x3000, pte: 0x400 A: 0x0, D: 0x0
             va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
-            -------------------------
-            -------------------------
-            va: 0x1000, pte: 0x308067 A: 0x20, D: 0x40
-            va: 0x2000, pte: 0x309027 A: 0x20, D: 0x0
-            va: 0x3000, pte: 0x400 A: 0x0, D: 0x0
-            va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
-            -------------------------
-            -------------------------
-            va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
-            va: 0x2000, pte: 0x309027 A: 0x20, D: 0x0
-            va: 0x3000, pte: 0x400 A: 0x0, D: 0x0
-            va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
-            -------------------------
-            -------------------------
-            va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
-            va: 0x2000, pte: 0x309007 A: 0x0, D: 0x0
-            va: 0x3000, pte: 0x400 A: 0x0, D: 0x0
-            va: 0x4000, pte: 0x30b007 A: 0x0, D: 0x0
-            -------------------------
             victim is 0x4000
             swap_out: i 0, store page in vaddr 0x4000 to disk swap entry 5
             swap_in: load disk swap entry 4 with swap_page in vadr 0x3000
             read Virt Page d in enclock_check_swap
             page fault at 0x00004000: K/R [no page found].
-            -------------------------
-            va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
-            va: 0x2000, pte: 0x309007 A: 0x0, D: 0x0
             va: 0x3000, pte: 0x30b027 A: 0x20, D: 0x0
-            va: 0x4000, pte: 0x500 A: 0x0, D: 0x0
-            -------------------------
-            -------------------------
             va: 0x1000, pte: 0x308047 A: 0x0, D: 0x40
-            va: 0x2000, pte: 0x309007 A: 0x0, D: 0x0
-            va: 0x3000, pte: 0x30b007 A: 0x0, D: 0x0
-            va: 0x4000, pte: 0x500 A: 0x0, D: 0x0
-            -------------------------
             write 0x1000 to disk
-            -------------------------
-            va: 0x1000, pte: 0x308007 A: 0x0, D: 0x0
             va: 0x2000, pte: 0x309007 A: 0x0, D: 0x0
-            va: 0x3000, pte: 0x30b007 A: 0x0, D: 0x0
-            va: 0x4000, pte: 0x500 A: 0x0, D: 0x0
-            -------------------------
             victim is 0x2000
             swap_out: i 0, store page in vaddr 0x2000 to disk swap entry 3
             swap_in: load disk swap entry 5 with swap_page in vadr 0x4000

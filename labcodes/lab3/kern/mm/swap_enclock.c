@@ -93,7 +93,7 @@ _enclock_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_t
         }
         struct Page *page = le2page(le, pra_page_link);
         pte_t* ptep = get_pte(mm->pgdir, page->pra_vaddr, 0);
-        _enclock_print_pte(mm);
+        _enclock_print_pte(ptep, page->pra_vaddr);
         // cprintf("BEFORE: va: 0x%x, pte: 0x%x A: 0x%x, D: 0x%x\n", page->pra_vaddr, *ptep, *ptep & PTE_A, *ptep & PTE_D);
         if (*ptep & PTE_A) {
             // set access to 0
