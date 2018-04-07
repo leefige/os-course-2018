@@ -141,13 +141,8 @@ _enclock_reset_pte(pde_t* pgdir) {
 }
 
 void
-_enclock_print_pte(struct mm_struct *mm) {
-    cprintf("-------------------------\n");
-    for(unsigned int va = 0x1000; va <= 0x4000; va += 0x1000) {
-        pte_t* ptep = get_pte(mm->pgdir, va, 0);
-        cprintf("va: 0x%x, pte: 0x%x A: 0x%x, D: 0x%x\n", va, *ptep, *ptep & PTE_A, *ptep & PTE_D);
-    }
-    cprintf("-------------------------\n");
+_enclock_print_pte(pte_t* ptep, unsigned int va) {
+    cprintf("va: 0x%x, pte: 0x%x A: 0x%x, D: 0x%x\n", va, *ptep, *ptep & PTE_A, *ptep & PTE_D);
 }
 
 static int
