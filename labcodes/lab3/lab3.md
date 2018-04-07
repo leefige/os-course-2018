@@ -280,10 +280,120 @@
 ### 练习3.x 实现识别dirty bit的 extended clock页替换算法
 
 1. **原理简述**
-    1. 现在
+    1. Clock算法将各虚拟地址节点按双向链表组织，依靠一个“时钟”式的指针，依次检查各节点，并执行相应操作，周而复始直到找到满足条件的可被置换出的节点
+    2. Extended clock算法在clock算法的基础上，其挑选被置换页的方法是依靠PTE中的PTE_A和PTE_D检测一个页表项是否被访问/修改过，被置换的优先级按如下排序：
+        1. PTE_A == 0 && PTE_D == 0，即既没有访问过又没有访问过的
+        2. PTE_A == 0 && PTE_D == 1，即虽然修改过，但没有访问过的
+        3. PTE_A != 0，即访问过的
+        该排序的依据是程序运行的局部性原理，即访问过的页更有可能后续还会被访问
+    3. 在该排序方法下，算法在遍历双向链表、寻找到合适节点前，对于扫描到的每一个节点做如下操作：
+        - 若PTE_A != 0，即页被访问过时，将PTE_A置0，指针直接指向下一个节点继续判断
+        - 若PTE_A == 0，即页没有访问过，但PTE_D != 0，即页被修改过，则将它复写到硬盘缓冲区，并将PTE_D置0，指针指向下一个节点继续判断
+        - 若PTE_A == 0且PTE_D == 0，则该节点被选中为被换出页，结束遍历，将该节点删除，同时指针指向该节点原来的后继节点
 2. **实现方法**
-    - 实现结果如下，check中顺序与PPT一致，并且打印了每次时钟指针转向下一个时的4个PTE情况，和PPT中对比可见PAGE FAULT情况一致（第一次victim为0x3000即c，第二次victim为0x4000即d，第三次victim为0x2000即b），说明实现基本正确：
+    - 实现的extended clock置换算法定义在`swap_enclock.[ch]`中（因为我在编码时误将extended clock记为enhanced clock，故命名为enclock，下同）
+    - 算法的实现在已有的FIFO基础上进行改进，涉及到需要修改的函数为`swap_manager`中的`init_mm()`，`map_swappable()`和`swap_out_victim()`函数，另外新增了一个结构体`enclock_struct`，内含算法需要维护的双向链表头节点head和时钟指针clock，用作vm_mm对象的`sm_priv`变量，其定义如下：
         ```c
+            // swap_enclock.h
+            struct enclock_struct {
+                list_entry_t* head;
+                list_entry_t** clock;
+            };
+
+            // swap_enclock.c
+            list_entry_t pra_list_head; // 链表头
+            list_entry_t *clock_ptr;    // 时钟指针
+            struct enclock_struct sm_priv_enclock =
+            {
+                .head            = &pra_list_head,
+                .clock           = &clock_ptr,
+            };
+        ```
+    - `init_mm()`中，需要初始化链表头节点，并让指针指向该节点，同时为vm_mm的`sm_priv`变量赋值为上述的`&sm_priv_enclock`，该函数定义如下：
+        ```c
+            static int
+            _enclock_init_mm(struct mm_struct *mm)
+            {
+                list_init(&pra_list_head);
+                clock_ptr = &pra_list_head;
+                assert(clock_ptr != NULL);
+                mm->sm_priv = &sm_priv_enclock;
+                return 0;
+            }
+        ```
+    - `map_swappable()`中，事实上与FIFO算法操作相同，都是对新换入的节点加入到链表尾，没有其他特殊操作，唯一的不同是从`sm_priv`中取出链表头节点的方法不同，即`list_entry_t *head = ((struct enclock_struct*) mm->sm_priv)->head`，其他类似，在此不再赘述
+    - `swap_out_victim()`为本算法核心，需要实现前面原理中叙述的第3点，即遍历双向链表并对PTE_A/PTE_D做出相应修改，最终筛选出被换出节点，注意在此处可能会遍历最多3次：第一次将PTE_A全部清零，第二次将PTE_D全部清零，第三次找到目标，因此对循环进行了计数，并加`assert(cnt < 3)`确保无误。此外，在每次修改PTE时，需要手动置TLB无效。遍历过程实现如下：
+        ```c
+            list_entry_t *le_prev = clock_ptr, *le;
+            int cnt = 0;
+            while (le = list_next(le_prev)) {
+                assert(cnt < 3);    // 确保循环次数正确
+                if (le == head) {
+                    cnt ++;
+                    le_prev = le;   // 每次遇到头节点时，跳过
+                    continue;
+                }
+                struct Page *page = le2page(le, pra_page_link);
+                // 获取PTE
+                pte_t* ptep = get_pte(mm->pgdir, page->pra_vaddr, 0);
+                // 打印PTE信息，注意这里被打印的地址为hard code （0x1000~0x4000），需要配合定义好的check函数
+                _enclock_print_pte(mm);
+                // PTE_A != 0
+                if (*ptep & PTE_A) {
+                    // set access to 0
+                    *ptep &= ~PTE_A;
+                    tlb_invalidate(mm->pgdir, page->pra_vaddr);
+                } else {
+                    // PTE_A == 0 && PTE_D != 0
+                    if (*ptep & PTE_D) {
+                        // 先将dirty page写入缓冲区
+                        if (swapfs_write((page->pra_vaddr / PGSIZE + 1) << 8, page) == 0) {
+                            cprintf("write 0x%x to disk\n", page->pra_vaddr);
+                        }
+                        // set dirty to 0
+                        *ptep = *ptep & ~PTE_D;
+                        tlb_invalidate(mm->pgdir, page->pra_vaddr);
+                    } else {
+                        // PTE_A == 0 && PTE_D == 0
+                        cprintf("victim is 0x%x\n", page->pra_vaddr);
+                        break;
+                    }
+                }
+                le_prev = le;
+            }
+        ```
+        在筛选出victim并结束算法之前，还需要注意要更新`mm->sm_priv`中的`clock`指针，以保存当前指针位置，指向被删除节点的原后继，也即被删除节点的前驱的现后继，实现如下：
+        ```c
+            *(((struct enclock_struct*) mm->sm_priv)->clock) = list_next(le_prev);
+        ```
+    - 为了检查实现效果，采用了PPT中的例子，即a, b, c, d四页均已在内存中且都未被访问、未被修改，那么一方面需要修改`check_swap()`令其与PPT中样例一致，包括读/写和PAGE FAULT数的assertion。另一方面，新增了函数`_enclock_reset_pte()`用来初始修改4个页的PTE标志位，以将其A/D均清空，该函数在`check_swap()`中的第一步执行。定义如下：
+        ```c
+            void
+            _enclock_reset_pte(pde_t* pgdir) {
+                cprintf("PTEs resetting...\n");
+                for(unsigned int va = 0x1000; va <= 0x4000; va += 0x1000) {
+                    pte_t* ptep = get_pte(pgdir, va, 0);
+                    *ptep = *ptep & ~PTE_A;
+                    *ptep = *ptep & ~PTE_D;
+                    tlb_invalidate(pgdir, va);
+                }
+                cprintf("PTEs reseted!\n");
+            }
+        ```
+        此外，为了方面查看指针每次移动后，PTE的变化情况，定义了`_enclock_print_pte()`函数打印4个页的PTE情况，不过需要注意这里是hard code的，如果要复用该方法，需要在`swap_out_victim()`中注释掉该函数的调用。定义如下：
+        ```c
+            void
+            _enclock_print_pte(struct mm_struct *mm) {
+                cprintf("-------------------------\n");
+                for(unsigned int va = 0x1000; va <= 0x4000; va += 0x1000) {
+                    pte_t* ptep = get_pte(mm->pgdir, va, 0);
+                    cprintf("va: 0x%x, pte: 0x%x A: 0x%x, D: 0x%x\n", va, *ptep, *ptep & PTE_A, *ptep & PTE_D);
+                }
+                cprintf("-------------------------\n");
+            }
+        ```
+    - 要使用该方法，需要在`swap.c`中将sm赋值为swap_manager_enclock，即`sm = &swap_manager_enclock`. 实现结果如下，check中顺序与PPT一致，并且打印了每次时钟指针转向下一个时的4个PTE情况，和PPT中对比可见PAGE FAULT情况一致（新增3次PAGE FAULT，第一次victim为0x3000即c，第二次victim为0x4000即d，第三次victim为0x2000即b），说明实现基本正确：
+        ```gdb
             -------------------- BEGIN --------------------
             PDE(0e0) c0000000-f8000000 38000000 urw
             |-- PTE(38000) c0000000-f8000000 38000000 -rw
@@ -450,7 +560,7 @@
 
 ## 4. 未对应知识点分析
 
-1. 其他局部页面置换算法：如LFU等，在实验中未要求实现
+1. 其他局部页面置换算法：如LFU等，在实验中未要求实现（extended clock算法在challenge中实现）
 2. 全局页面置换算法：如工作集置换算法、缺页率置换算法
 3. 抖动问题和负载控制：因为Lab 3尚未涉及进程，因此没有涉及
 4. 覆盖技术和交换技术

@@ -208,7 +208,7 @@ _enclock_tick_event(struct mm_struct *mm)
 
 struct swap_manager swap_manager_enclock =
 {
-     .name            = "enclock swap manager",
+     .name            = "extended clock swap manager",
      .init            = &_enclock_init,
      .init_mm         = &_enclock_init_mm,
      .tick_event      = &_enclock_tick_event,
