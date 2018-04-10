@@ -6,6 +6,8 @@
 1. 进程切换的可能时机有哪些？
 
  > 时间片用完、被高优先级进程抢先、进入等待状态、进程结束
+ 
+ > 中断或系统调用返回时判断是否需要进程切换。如果需要，则实施切换。
 
 2. ucore进程控制块proc_struct数据结构内容有些什么？
 
@@ -63,7 +65,7 @@ run_link、list_link、hash_link
 
 ## 小组思考题
 
-(1) (spoc)设计一个简化的进程管理子系统，可以管理并调度如下简化进程.给出了[参考代码](https://github.com/chyyuu/ucore_lab/blob/master/related_info/lab5/process-cpuio-homework.py)，请理解代码，并完成＂YOUR CODE"部分的内容．　可２个人一组
+(1) (spoc)设计一个简化的进程管理子系统，可以管理并调度支持“就绪”和“等待”状态的简化进程。给出了[参考代码](https://github.com/chyyuu/ucore_lab/blob/master/related_info/lab5/process-cpuio-homework.py)，请理解代码，并完成＂YOUR CODE"部分的内容．　可２个人一组
 
 ### 进程的状态 
 ```
