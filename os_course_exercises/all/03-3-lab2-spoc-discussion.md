@@ -76,7 +76,7 @@ NOTICE
 > - movl %cr0, %eax将cr0寄存器的值取到eax中
 > - 将eax的bit 31 PG置为1，使能页机制
 > - movl %eax, %cr0将值写回cr0寄存器，使能页机制
-> - ljmp $CODE_SEL, $0x0将$CODE_SEL写入cs，刷新cs寄存器和其base，将eip置0，随后从核心代码段的0地址开始执行
+> - ljmp \$CODE_SEL, \$0x0将\$CODE_SEL写入cs，刷新cs寄存器和其base，将eip置0，随后从核心代码段的0地址开始执行
 
 2. 分析页表的建立过程；
 > 1. 分配一页空间作为页目录表
