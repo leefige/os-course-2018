@@ -41,8 +41,8 @@ swap_init(void)
      
 
     // LAB3 : set sm as FIFO/ENHANCED CLOCK
-    // sm = &swap_manager_fifo;
-    sm = &swap_manager_enclock;
+    sm = &swap_manager_fifo;
+    // sm = &swap_manager_enclock;
 
      int r = sm->init();
      
