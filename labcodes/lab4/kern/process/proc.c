@@ -15,7 +15,7 @@
 /* ------------- process/thread mechanism design&implementation -------------
 (an simplified Linux process/thread mechanism )
 introduction:
-  ucore implements a simple process/thread mechanism. process contains the independent memory sapce, at least one threads
+  ucore implements a simple process/thread mechanism. process contains the independent memory sapce, at least one thread
 for execution, the kernel data(for management), processor state (for context switch), files(in lab6), etc. ucore needs to
 manage all these details efficiently. In ucore, a thread is just a special kind of process(share process's memory).
 ------------------------------
@@ -65,7 +65,7 @@ list_entry_t proc_list;
 #define HASH_LIST_SIZE      (1 << HASH_SHIFT)
 #define pid_hashfn(x)       (hash32(x, HASH_SHIFT))
 
-// has list for process set based on pid
+// hash list for process set based on pid
 static list_entry_t hash_list[HASH_LIST_SIZE];
 
 // idle proc
@@ -78,7 +78,7 @@ struct proc_struct *current = NULL;
 static int nr_process = 0;
 
 void kernel_thread_entry(void);
-void forkrets(struct trapframe *tf);
+void forkrets(struct trapframe *tf);    // resotore esp, and then jmp to trapret just like ret from trap
 void switch_to(struct context *from, struct context *to);
 
 // alloc_proc - alloc a proc_struct and init all fields of proc_struct
@@ -86,7 +86,7 @@ static struct proc_struct *
 alloc_proc(void) {
     struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
     if (proc != NULL) {
-    //LAB4:EXERCISE1 YOUR CODE
+    //LAB4 :EXERCISE1 2015010062
     /*
      * below fields in proc_struct need to be initialized
      *       enum proc_state state;                      // Process state
@@ -102,6 +102,18 @@ alloc_proc(void) {
      *       uint32_t flags;                             // Process flag
      *       char name[PROC_NAME_LEN + 1];               // Process name
      */
+        proc->state = PROC_UNINIT;
+        proc->pid = -1;         // an invalid pid
+        proc->runs = 0;
+        proc->kstack = 0;
+        proc->need_resched = 0;
+        proc->parent = NULL;
+        proc->mm = NULL;
+        memset(&(proc->context), 0, sizeof(struct context));
+        proc->tf = NULL;
+        proc->cr3 = boot_cr3;   // kernel threads share boot_cr3
+        proc->flags = 0;
+        memset(proc->name, 0, sizeof(char) * (PROC_NAME_LEN + 1));
     }
     return proc;
 }
@@ -271,7 +283,7 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
         goto fork_out;
     }
     ret = -E_NO_MEM;
-    //LAB4:EXERCISE2 YOUR CODE
+    //LAB4 :EXERCISE2 YOUR CODE
     /*
      * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
      * MACROs or Functions:

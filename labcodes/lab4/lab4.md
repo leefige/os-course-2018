@@ -50,8 +50,10 @@
         swap_init();        // init swap
         clock_init();       // init clock interrupt
         intr_enable();      // enable irq interrupt
+
+        cpu_idle();         // run idle process
     ```
-    可以看到在pmm和vmm都初始化后，会进行进程初始化，随后才初始化置换机制和时钟中断等。
+    可以看到在pmm和vmm都初始化后，会进行进程初始化，随后才初始化置换机制和时钟中断等。在全部就绪后，会调用`cpu_idle()`转入idle_process，开始进程调度。idle_process唯一的工作就是检查当前进程是否需要调度，如果需要，就进行进程调度，并且死循环执行这一过程。
 
 ### 练习4.1 分配并初始化一个进程控制块
 
