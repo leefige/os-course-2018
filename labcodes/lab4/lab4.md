@@ -209,7 +209,7 @@
             *ptr_page = page;
         ```
         需要说明的是，我在这里遇到的一个问题是在`le2page()`中因为混淆，误把第二个参数写成了page_link（实际为pra_page_link），导致无法将链表项返回为正确的page，这一bug调试花费我很长时间，不过也说明这两者命名可能不够有区分度，导致有混淆的可能
-    - 完成后，运行`make qemu`可以看到如下结果，可见通过了`check_swap()`的检查
+    - 完成后，运行`make qemu`可以看到如下结果，可见已经成功创建了第0个和第1个线程，并成功执行了`init_proc`线程输出了"Hello world!!"信息，最后正常通过`do_exit()`退出：
         ```gdb
             ...
             check_alloc_page() succeeded!
@@ -222,6 +222,8 @@
             |-- PTE(000e0) faf00000-fafe0000 000e0000 urw
             |-- PTE(00001) fafeb000-fafec000 00001000 -rw
             --------------------- END ---------------------
+            use SLOB allocator
+            kmalloc_init() succeeded!
             check_vma_struct() succeeded!
             page fault at 0x00000100: K/W [no page found].
             check_pgfault() succeeded!
@@ -229,7 +231,7 @@
             ide 0:      10000(sectors), 'QEMU HARDDISK'.
             ide 1:     262144(sectors), 'QEMU HARDDISK'.
             SWAP: manager = fifo swap manager
-            BEGIN check_swap: count 1, total 31964
+            BEGIN check_swap: count 1, total 31953
             setup Page Table for vaddr 0X1000, so alloc a page
             setup Page Table vaddr 0~4MB OVER!
             set up init env for check_swap begin!
@@ -270,12 +272,14 @@
             page fault at 0x00001000: K/R [no page found].
             swap_out: i 0, store page in vaddr 0x2000 to disk swap entry 3
             swap_in: load disk swap entry 2 with swap_page in vadr 0x1000
-            count is 0, total is 7
+            count is 0, total is 5
             check_swap() succeeded!
             ++ setup timer interrupts
-            100 ticks
-            100 ticks
-
+            this initproc, pid = 1, name = "init"
+            To U: "Hello world!!".
+            To U: "en.., Bye, Bye. :)"
+            kernel panic at kern/process/proc.c:353:
+                process exit!!.
         ```
 3. **回答问题**
     - 如果要在ucore上实现"extended clock页替换算法"请给你的设计方案，现有的swap_manager框架是否足以支持在ucore中实现此算法？如果是，请给你的设计方案。如果不是，请给出你的新的扩展和基此扩展的设计方案。并需要回答如下问题:
