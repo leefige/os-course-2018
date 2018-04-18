@@ -178,7 +178,7 @@ proc_run(struct proc_struct *proc) {
         local_intr_save(intr_flag);
         {
             current = proc;
-            load_esp0(next->kstack + KSTACKSIZE);
+            load_esp0(next->kstack + KSTACKSIZE);   // kstack is the lowest(base) addr of the stack, but esp points to the higest addr
             lcr3(next->cr3);
             switch_to(&(prev->context), &(next->context));
         }
@@ -200,7 +200,7 @@ hash_proc(struct proc_struct *proc) {
     list_add(hash_list + pid_hashfn(proc->pid), &(proc->hash_link));
 }
 
-// find_proc - find proc frome proc hash_list according to pid
+// find_proc - find proc from proc hash_list according to pid
 struct proc_struct *
 find_proc(int pid) {
     if (0 < pid && pid < MAX_PID) {
@@ -220,13 +220,13 @@ find_proc(int pid) {
 //       proc->tf in do_fork-->copy_thread function
 int
 kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags) {
-    struct trapframe tf;
+    struct trapframe tf;        // this is just a tmp var
     memset(&tf, 0, sizeof(struct trapframe));
     tf.tf_cs = KERNEL_CS;
     tf.tf_ds = tf.tf_es = tf.tf_ss = KERNEL_DS;
-    tf.tf_regs.reg_ebx = (uint32_t)fn;
-    tf.tf_regs.reg_edx = (uint32_t)arg;
-    tf.tf_eip = (uint32_t)kernel_thread_entry;
+    tf.tf_regs.reg_ebx = (uint32_t)fn;              // this is the function this thread will truly exec
+    tf.tf_regs.reg_edx = (uint32_t)arg;             // this is the arg of fn
+    tf.tf_eip = (uint32_t)kernel_thread_entry;      // as soon as the kthread start to run, it will exec k_t_entry
     return do_fork(clone_flags | CLONE_VM, 0, &tf);
 }
 
@@ -260,14 +260,14 @@ copy_mm(uint32_t clone_flags, struct proc_struct *proc) {
 //             - setup the kernel entry point and stack of process
 static void
 copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf) {
-    proc->tf = (struct trapframe *)(proc->kstack + KSTACKSIZE) - 1;
+    proc->tf = (struct trapframe *)(proc->kstack + KSTACKSIZE) - 1;     // at the top of kstack
     *(proc->tf) = *tf;
     proc->tf->tf_regs.reg_eax = 0;
     proc->tf->tf_esp = esp;
     proc->tf->tf_eflags |= FL_IF;
 
-    proc->context.eip = (uintptr_t)forkret;
-    proc->context.esp = (uintptr_t)(proc->tf);
+    proc->context.eip = (uintptr_t)forkret;     // as soon as this proc starts, it will exec forkret
+    proc->context.esp = (uintptr_t)(proc->tf);  // esp is at the available top of kstack (just under tf space)
 }
 
 /* do_fork -     parent process for a new child process
@@ -283,7 +283,7 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
         goto fork_out;
     }
     ret = -E_NO_MEM;
-    //LAB4 :EXERCISE2 YOUR CODE
+    //LAB4 :EXERCISE2 2015010062
     /*
      * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
      * MACROs or Functions:
@@ -302,12 +302,38 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
      */
 
     //    1. call alloc_proc to allocate a proc_struct
+    proc = alloc_proc();
+    if (proc == NULL) {
+        goto fork_out;
+    }
+    proc->parent = current;
     //    2. call setup_kstack to allocate a kernel stack for child process
+    if (setup_kstack(proc) != 0) {
+        goto bad_fork_cleanup_proc;
+    }
     //    3. call copy_mm to dup OR share mm according clone_flag
+    if (copy_mm(clone_flags, proc) != 0) {
+        goto bad_fork_cleanup_kstack;
+    }
     //    4. call copy_thread to setup tf & context in proc_struct
+    copy_thread(proc, stack, tf);   // note: if stack == 0, this is a kernel thread
     //    5. insert proc_struct into hash_list && proc_list
+    // this need disabling interrupt
+    bool intr_flag;
+    local_intr_save(intr_flag);
+    {
+        // get an unique pid
+        proc->pid = get_pid();
+        hash_proc(proc);
+        list_add(&proc_list, &(proc->list_link));
+        nr_process++;
+    }
+    local_intr_restore(intr_flag);
     //    6. call wakeup_proc to make the new child process RUNNABLE
+    wakeup_proc(proc);
     //    7. set ret vaule using child proc's pid
+    ret = proc->pid;
+    
 fork_out:
     return ret;
 
@@ -343,6 +369,7 @@ proc_init(void) {
     int i;
 
     list_init(&proc_list);
+    // fill in all hash list
     for (i = 0; i < HASH_LIST_SIZE; i ++) {
         list_init(hash_list + i);
     }
@@ -360,6 +387,7 @@ proc_init(void) {
 
     current = idleproc;
 
+    // create the init_proc
     int pid = kernel_thread(init_main, "Hello world!!", 0);
     if (pid <= 0) {
         panic("create init_main failed.\n");
