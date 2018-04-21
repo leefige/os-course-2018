@@ -109,10 +109,11 @@ alloc_proc(void) {
         proc->need_resched = 0;
         proc->parent = NULL;
         proc->mm = NULL;
-        memset(&(proc->context), 0, sizeof(struct context));
         proc->tf = NULL;
         proc->cr3 = boot_cr3;   // kernel threads share boot_cr3
         proc->flags = 0;
+
+        memset(&(proc->context), 0, sizeof(struct context));
         memset(proc->name, 0, sizeof(char) * (PROC_NAME_LEN + 1));
     }
     return proc;
