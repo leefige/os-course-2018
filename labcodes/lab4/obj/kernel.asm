@@ -17838,25 +17838,26 @@ c0108835:	c7 40 14 00 00 00 00 	movl   $0x0,0x14(%eax)
         proc->mm = NULL;
 c010883c:	8b 45 f4             	mov    -0xc(%ebp),%eax
 c010883f:	c7 40 18 00 00 00 00 	movl   $0x0,0x18(%eax)
-        memset(&(proc->context), 0, sizeof(struct context));
-c0108846:	8b 45 f4             	mov    -0xc(%ebp),%eax
-c0108849:	83 c0 1c             	add    $0x1c,%eax
-c010884c:	83 ec 04             	sub    $0x4,%esp
-c010884f:	6a 20                	push   $0x20
-c0108851:	6a 00                	push   $0x0
-c0108853:	50                   	push   %eax
-c0108854:	e8 cb 0c 00 00       	call   c0109524 <memset>
-c0108859:	83 c4 10             	add    $0x10,%esp
         proc->tf = NULL;
-c010885c:	8b 45 f4             	mov    -0xc(%ebp),%eax
-c010885f:	c7 40 3c 00 00 00 00 	movl   $0x0,0x3c(%eax)
+c0108846:	8b 45 f4             	mov    -0xc(%ebp),%eax
+c0108849:	c7 40 3c 00 00 00 00 	movl   $0x0,0x3c(%eax)
         proc->cr3 = boot_cr3;   // kernel threads share boot_cr3
-c0108866:	8b 15 94 c1 12 c0    	mov    0xc012c194,%edx
-c010886c:	8b 45 f4             	mov    -0xc(%ebp),%eax
-c010886f:	89 50 40             	mov    %edx,0x40(%eax)
+c0108850:	8b 15 94 c1 12 c0    	mov    0xc012c194,%edx
+c0108856:	8b 45 f4             	mov    -0xc(%ebp),%eax
+c0108859:	89 50 40             	mov    %edx,0x40(%eax)
         proc->flags = 0;
-c0108872:	8b 45 f4             	mov    -0xc(%ebp),%eax
-c0108875:	c7 40 44 00 00 00 00 	movl   $0x0,0x44(%eax)
+c010885c:	8b 45 f4             	mov    -0xc(%ebp),%eax
+c010885f:	c7 40 44 00 00 00 00 	movl   $0x0,0x44(%eax)
+
+        memset(&(proc->context), 0, sizeof(struct context));
+c0108866:	8b 45 f4             	mov    -0xc(%ebp),%eax
+c0108869:	83 c0 1c             	add    $0x1c,%eax
+c010886c:	83 ec 04             	sub    $0x4,%esp
+c010886f:	6a 20                	push   $0x20
+c0108871:	6a 00                	push   $0x0
+c0108873:	50                   	push   %eax
+c0108874:	e8 ab 0c 00 00       	call   c0109524 <memset>
+c0108879:	83 c4 10             	add    $0x10,%esp
         memset(proc->name, 0, sizeof(char) * (PROC_NAME_LEN + 1));
 c010887c:	8b 45 f4             	mov    -0xc(%ebp),%eax
 c010887f:	83 c0 48             	add    $0x48,%eax
@@ -18400,7 +18401,7 @@ c0108c5a:	85 c0                	test   %eax,%eax
 c0108c5c:	74 19                	je     c0108c77 <copy_mm+0x2b>
 c0108c5e:	68 58 bf 10 c0       	push   $0xc010bf58
 c0108c63:	68 6c bf 10 c0       	push   $0xc010bf6c
-c0108c68:	68 fe 00 00 00       	push   $0xfe
+c0108c68:	68 ff 00 00 00       	push   $0xff
 c0108c6d:	68 81 bf 10 c0       	push   $0xc010bf81
 c0108c72:	e8 81 77 ff ff       	call   c01003f8 <__panic>
     /* do nothing in this project */
@@ -18559,7 +18560,6 @@ c0108d9c:	83 c4 10             	add    $0x10,%esp
 c0108d9f:	e8 18 f9 ff ff       	call   c01086bc <__intr_save>
 c0108da4:	89 45 ec             	mov    %eax,-0x14(%ebp)
     {
-        // get an unique pid
         proc->pid = get_pid();
 c0108da7:	e8 55 fb ff ff       	call   c0108901 <get_pid>
 c0108dac:	89 c2                	mov    %eax,%edx
