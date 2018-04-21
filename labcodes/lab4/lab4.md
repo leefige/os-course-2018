@@ -109,7 +109,14 @@
         >               tf.tf_eip = (uint32_t)kernel_thread_entry;      // as soon as the kthread start to run, it will exec k_t_entry
         >               return do_fork(clone_flags | CLONE_VM, 0, &tf);
         >           ```
-        >           可以看到这里对各段寄存器进行了预设，格外需要注意的是，将`tf`中的%ebx，%edx设为了线程主函数和其参数，而%eip设为了函数`kernel_thread_entry()`，而后在调用`do_fork()`实际创建出这个线程时，在调用`copy_thread`时将`context`中的%eip设为了`forkret()`. 那么，在该线程被创建、就绪，并且第一次被执行时，通过`switch_to()`将其`context`恢复到处理机中，那么它执行的第一条指令是`forkret()`，进而调用trapentry.S中的`forkrets`函数，
+        >           可以看到这里对各段寄存器进行了预设，格外需要注意的是，将`tf`中的%ebx，%edx设为了线程主函数和其参数，而%eip设为了函数`kernel_thread_entry()`；随后在调用`do_fork()`实际创建出这个线程时，在调用`copy_thread()`时将`context`中的%eip设为了`forkret()`. 那么，在该线程被创建、就绪，并且第一次被执行时，其执行流程如下：
+        >           1. 通过`switch_to()`将其`context`恢复到处理机中，那么它执行的第一条指令是`forkret()`
+        >           2. 进而以进程的`tf`（这是一个指针）为参数调用`trapentry.S::forkrets()`函数
+        >           3. 在`forkrets()`中，将参数`tf`的值赋给%esp，即让栈顶指向该进程内核栈的trapframe首地址，这就是内核栈的栈顶位置
+        >           4. 随后跳转到`__trapret()`，按照普通中断/异常的返回流程，将trapframe中的通用寄存器和段寄存器的值恢复到处理机中
+        >           5. 最后利用`iret`中断返回后，将从`tf.tf_eip`中指定的`entry.S::kernel_thread_entry()`开始执行，它通过`pushl %edx; call *%ebx`以之前指定在`tf`中的%edx值为参数、%ebx值为入口函数地址开始执行新进程真正的main函数
+        >           6. 新进程的main函数执行完毕返回`kernel_thread_entry()`后，通过`pushl %eax; call do_exit`将该进程的返回值%eax压栈作为参数，最后调用`do_exit`进程退出
+
 ### 练习4.2 为新创建的内核线程分配资源
 
 1. **原理简述**
