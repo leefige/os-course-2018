@@ -322,7 +322,6 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
     bool intr_flag;
     local_intr_save(intr_flag);
     {
-        // get an unique pid
         proc->pid = get_pid();
         hash_proc(proc);
         list_add(&proc_list, &(proc->list_link));

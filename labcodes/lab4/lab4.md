@@ -120,47 +120,23 @@
 ### 练习4.2 为新创建的内核线程分配资源
 
 1. **原理简述**
-    1. 承接练习1中所述的[PAGE FAULT处理相关步骤](#steps)，在`do_pgfault()`判断需要目标页被换出到磁盘后，需要将页换入
-    2. 页换入时，调用`swap_in()`将磁盘中存储的页内容写入物理内存，并得到对应的物理页Page指针，接着调用`page_insert()`建立物理页到对应虚页的映射关系，然后将这一被换入页利用`swap_map_swappable()`标注为可换出
-    3. 这里需要注意的是，在物理页换入后，要将物理页Page的`pra_vaddr`属性写为对应虚地址，这是为了在后续换出时使用
-    4. 在具体的换入换出算法中，练习中实现了FIFO算法，该算法通过维护一个链表，每次一个页被设置为可换出时，将它加入这个链表尾部，而每次需要将一个页换出时，从这个链表的头部取出一个页换出，这样就实现了先进先出的置换算法
-    5. 具体地，在设置一个页可换出时使用`_fifo_map_swappable()`，该函数将一个页Page的`pra_page_link`插入上述链表尾部；在获取可换出页时，使用`_fifo_swap_out_victim()`，该函数取出链表头的页，将其从该链表中删除，并将对应的物理页Page返回到目标中，即找到了被淘汰的页
-        
+    1. 练习1中`alloc_proc()`只是为进程分配了PCB资源，但还未为其分配运行所需的内存空间、栈等资源。考虑进程创建的方式，第一个内核线程事实上就是从初始运行至创建第二个内核线程之前的OS kernel本身，在`proc_init()`中，它为自己创建一个PCB并为自己命名为`idleproc`，将这个PCB的kstack指向自己运行至今的栈`bootstack`；在有了这一初始进程后，随后的内核线程都利用`fork`的方法创建，内核线程创建接口为`int kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags)`，它在内部使用`do_fork()`通过fork当前进程创建新进程，并返回子进程的pid
+    2. 那么，为新建进程的资源分配过程在`do_fork()`中完成，它包含以下过程：
+        1. 创建子进程的PCB：`alloc_proc()`
+        2. 创建子进程的内核栈：`setup_kstack()`
+        3. 为子进程复制内存空间：`copy_mm()`，注意，在创建内核线程时不需要执行复制，因为内核线程共享OS kernel启动时设置好的内存空间
+        4. 复制控制流上下文信息：`copy_thread()`，用来初始化`context`和`tf`
+        5. 将子进程的PCB插入PCB list，这一步因为涉及修改全局信息，因此需要暂时屏蔽中断，以保证操作的原子性
+        6. 通过`wakeup_proc()`设置子线程为`RUNNABLE`，即就绪状态
+        7. 返回子进程的pid
+
 2. **实现方法**
-    - 首先在`do_pgfault()`中，地址合法、可访问且判断PTE不为0，说明该页被换出到磁盘，那么调用`swap_in()`将其换入、建立虚拟地址映射、标记为可换出，实现如下：
-        ```c
-            if(swap_init_ok) {
-                struct Page *page=NULL;
-                assert(swap_in(mm, addr, &page) == 0);
-                page->pra_vaddr = addr;
-                page_insert(mm->pgdir, page, addr, perm);
-                swap_map_swappable(mm, addr, page, 1);
-            }
-        ```
-    - 在具体的置换算法`swap_fifo.c`中，需要完善`_fifo_map_swappable()`和`_fifo_swap_out_victim()`。其中`_fifo_map_swappable()`根据传入参数`swap_in`判断是否是被换入页（存在不是的情况，如试图换出一个页失败时），如果是，则直接将其插入链表尾，也即双向列表的head之前；若不是，则还需先找到原来的节点，将其删除，再重新插入链表尾。实现如下：
-        ```c
-            if (swap_in == 0) {
-                list_entry_t *le_prev = head, *le;
-                while ((le = list_next(le_prev)) != head) {
-                    if (le == entry) {
-                        list_del(le);
-                        break;
-                    }
-                    le_prev = le;
-                }
-            }
-            list_add_before(head, entry);
-        ```
-    - 在`_fifo_swap_out_victim()`中，要取出链表第一个节点，将其删除，并将它返回到传入的指针，实现如下：
-        ```c
-            list_entry_t *front = list_next(head);
-            assert(front != head);
-            list_del(front);
-            //(2)  assign the value of *ptr_page to the addr of this page
-            struct Page *page = le2page(front, pra_page_link);
-            *ptr_page = page;
-        ```
-        需要说明的是，我在这里遇到的一个问题是在`le2page()`中因为混淆，误把第二个参数写成了page_link（实际为pra_page_link），导致无法将链表项返回为正确的page，这一bug调试花费我很长时间，不过也说明这两者命名可能不够有区分度，导致有混淆的可能
+    - 步骤基本按照上述原理中叙述进行，需要注意的是，要处理可能出现的异常状况：
+        - 若在分配PCB时就失败，则直接失败退出
+        - 若在分配内核栈时失败，则需要先清理已经分配的PCB再退出，那么返回`bad_fork_cleanup_proc`
+        - 若在复制内核空间时失败，则需要清理栈和PCB再退出，那么返回`bad_fork_cleanup_kstack`
+    - 另外需要注意，分配PCB后，要手动在`do_fork`中为PCB指定其父进程为当前进程，即`proc->parent = current`
+    - 此外，在将PCB插入list并增加PCB数量时，由于涉及全局信息修改，需要保证操作原子性，所以需要暂时屏蔽中断
     - 完成后，运行`make qemu`可以看到如下结果，可见已经成功创建了第0个和第1个线程，并成功执行了`init_proc`线程输出了"Hello world!!"信息，最后正常通过`do_exit()`退出：
         ```gdb
             ...
