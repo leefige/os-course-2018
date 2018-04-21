@@ -57,114 +57,59 @@
 
 ### 练习4.1 分配并初始化一个进程控制块
 
-1. **原理简述**
-    1. 现在我们已经拥有的基础是对物理内存的管理和对页表/页目录表的管理，以及对异常/中断的处理机制；虚拟内存管理就是在这二者基础上建立的，一方面，利用虚拟地址得到物理地址的对应关系由页表实现，另一方面，通过触发Page Fault异常，可以实现将不在物理内存中的页换入物理内存
-    2. 对虚拟内存的管理类似对物理内存的管理，都是建立在连续地址空间基础之上的，用来管理一片连续虚拟地址的结构为`struct vma_struct`，定义如下：
+1. **原理和实现**
+    1. 操作系统中对一个进程是否存在的唯一标识是其进程控制块PCB，ucore中PCB由内核管理，以结构体`struct proc_struct`的形式存在，其中包含与进程相关的各类信息，包括进程标识信息（PID, name等）、存储管理信息（mm, cr3等）、处理机现场信息（context等）、进程调度信息（need_resched等），以及PCB之间的连接信息（即链表节点）
+    2. 每次创建新进程都需要创建一个对应的PCB，执行这一操作的函数是`alloc_proc`，它调用`kmalloc()`为PCB分配空间，并且执行其中成员值的初始化
+    3. 初始化中，大部分值被置为0，指针被置为空指针NULL，数组也初始化为0，包括：
         ```c
-            struct vma_struct {
-                struct mm_struct *vm_mm; // 虚拟内存管理器
-                uintptr_t vm_start;      // virtual memory area的首地址
-                uintptr_t vm_end;        // virtual memory area的未地址，vma区间为[start, end)
-                uint32_t vm_flags;       // flags of vma
-                list_entry_t list_link;  // 链表节点
-            };
+            proc->runs = 0;
+            proc->kstack = 0;
+            proc->need_resched = 0;
+            proc->parent = NULL;
+            proc->mm = NULL;
+            memset(&(proc->context), 0, sizeof(struct context));
+            proc->tf = NULL;
+            proc->flags = 0;
+            memset(proc->name, 0, sizeof(char) * (PROC_NAME_LEN + 1));
         ```
-    3. 在每个`vma_struct`中都有一个指向`mm_struct`的指针vm_mm，而且属于同一PDT（页目录表）的vma，也即对应于同一进程（尽管在lab 3中还没有实现进程管理）的vma，都指向同一个vm_mm，这个vm_mm就是用来管理这一进程的所有虚拟地址的虚拟内存管理器，其定义如下：
+        其中要注意到，对于数组和结构体要使用`memset`进行连续内存空间的初始化
+    4. 除了这些值外，还有3个成员需要单独考虑，它们会被分配特定的值，包括：
         ```c
-            struct mm_struct {
-                list_entry_t mmap_list;        // 连接各vma的链表的头节点
-                struct vma_struct *mmap_cache; // vma的查找缓存，根据实验指导书，可以将查找效率提高30%
-                pde_t *pgdir;                  // 该虚拟内存管理器对应的页目录表（也就是该进程的页目录表）
-                int map_count;                 // vma计数
-                void *sm_priv;                 // 由交换管理器swap manager使用的数据
-            };
+            proc->state = PROC_UNINIT;  // show that this PCB has just be alloced but not inited
+            proc->pid = -1;             // an invalid pid
+            proc->cr3 = boot_cr3;       // kernel threads share boot_cr3
         ```
-        可以看到，在`mm_struct`中还定义了用于交换的swap manager私有数据`sm_priv`，这部分相关内容将在下一个练习中涉及
-    4. 虚拟存储管理的工作原理如下：
-        - 利用虚拟地址映射得到物理地址的实现已经在lab 2的页表配置相关内容中完成，MMU通过查询页表就可以获得虚拟地址对应的物理地址（如果存在）和相关标志，如页是否存在于内存中等
-        - 对于每一个合法的虚拟地址，都会有相应的vma维护，而同一页目录表下的所有vma（即所有合法虚拟地址）则由更上层的vm_mm维护：
-            - vma维护了每一段连续虚拟地址空间的地址范围以及访问权限、标志位
-            - vm_mm维护了所有vma组成的链表，vma数量，所属的页目录表以及换入换出相关数据
-        - 在实际访存时，如果正常得到标志为存在且权限合法的物理地址，则直接访存；否则会触发PAGE FAULT，这就进入<span id="steps">**PAGE FAULT处理相关步骤**</span>：
-            1. 选择出错虚拟地址所属PDT对应的vm_mm，将PAGE FAULT错误码和%cr2寄存器中的出错虚拟地址
-            2. 检查要访存的虚拟地址是否合法、具有何种权限要求、是否可访问
-            3. 如果合法、可访问，但地址所在的物理页不在内存中，则将其从磁盘换入
-            4. 在需要的时候，将某些物理页从内存换出到磁盘中
-        - 本练习涉及上述前两步，其具体过程如下：
-            1. 触发PAGE FAULT异常，转入中断异常处理例程，导致出错的线性地址保存在%cr2寄存器，指示错误类型的错误码被压栈
-            2. 判断为PAGE FAULT异常后，交由`pgfault_handler()`处理，在该函数中，会检查vm_mm是否存在，如果存在，以vm_mm，错误码和%cr2寄存器中的地址为参数，调用`do_pgfault()`转入下一步处理
-            3. 在`do_pgfault()`中，首先根据%cr2中的线性地址在vm_mm中寻找维护该地址的vma，若没找到，说明该地址非法，直接fail
-            4. 接着根据错误码判断出错类型，如读/写不在物理内存中的页、写只读页等
-            5. 若判断为合法、可访问，但是目标页不在物理内存中，则准备将该页换入物理内存或分配新的物理页，根据vma中的标志位设置页权限
-            6. 通过`get_pte()`获得地址对应的页表项PTE，检查PTE中的地址，若为0，说明该物理页尚未被分配，则直接调用`pgdir_alloc_page()`为该虚地址分配一个物理页，结束处理
-            7. 若PTE中地址非0，说明该页被换出，需要换入，进入上述的第3步
-
-2. **实现方法**
-    - 这一练习需要完成的部分在`do_pgfault()`中，需要实现在判断虚地址合法、可访问后，获取对应的PTE，并在检查发现该页事实还未被分配时直接分配一个物理页
-    - 注释中已经给出了实现步骤，流程如上所述，我的实现如下：
-        ```c
-            ptep = get_pte(mm->pgdir, addr, 1);
-            assert(ptep != NULL);
-            if (*ptep == 0) {
-                assert(pgdir_alloc_page(mm->pgdir, addr, perm) != NULL);
-            }
-        ```
-    - 完成这一步后，可以看到如下结果，可见`check_vma_struct()`, `check_pgfault()`和`check_vmm()`已经成功，虚拟存储框架已经建立，但在具体处理swap时出现异常，这是下一个练习中涉及的内容：
-        ```gdb
-            ...
-            check_alloc_page() succeeded!
-            check_pgdir() succeeded!
-            check_boot_pgdir() succeeded!
-            -------------------- BEGIN --------------------
-            PDE(0e0) c0000000-f8000000 38000000 urw
-            |-- PTE(38000) c0000000-f8000000 38000000 -rw
-            PDE(001) fac00000-fb000000 00400000 -rw
-            |-- PTE(000e0) faf00000-fafe0000 000e0000 urw
-            |-- PTE(00001) fafeb000-fafec000 00001000 -rw
-            --------------------- END ---------------------
-            check_vma_struct() succeeded!
-            page fault at 0x00000100: K/W [no page found].
-            check_pgfault() succeeded!
-            check_vmm() succeeded.
-            ide 0:      10000(sectors), 'QEMU HARDDISK'.
-            ide 1:     262144(sectors), 'QEMU HARDDISK'.
-            SWAP: manager = fifo swap manager
-            BEGIN check_swap: count 1, total 31965
-            setup Page Table for vaddr 0X1000, so alloc a page
-            setup Page Table vaddr 0~4MB OVER!
-            set up init env for check_swap begin!
-            page fault at 0x00001000: K/W [no page found].
-            page fault at 0x00002000: K/W [no page found].
-            page fault at 0x00003000: K/W [no page found].
-            page fault at 0x00004000: K/W [no page found].
-            set up init env for check_swap over!
-            write Virt Page c in fifo_check_swap
-            write Virt Page a in fifo_check_swap
-            write Virt Page d in fifo_check_swap
-            write Virt Page b in fifo_check_swap
-            write Virt Page e in fifo_check_swap
-            page fault at 0x00005000: K/W [no page found].
-            page fault at 0x0000001b: K/R [no page found].
-            not valid addr 1b, and  can not find it in vma
-            trapframe at 0xc011ed34
-            ...
-            kernel panic at kern/trap/trap.c:189:
-                handle pgfault failed. invalid parameter
-        ```
+        其中，state被初始化为`PROC_UNINIT`表明该PCB对应的进程还未被初始化，仅仅是分配了PCB而已；pid被置为-1也即一个非法值，那么这一PCB不在合法的PCB队列中；cr3被置为boot_cr3，因为这里创建的PCB是内核线程的PCB，而在ucore中内核线程共享同一地址空间，因此共享在kernel中以及创建的页表
 
 2. **回答问题** ：
-    1. 请描述页目录项（Pag Director Entry）和页表（Page Table Entry）中组成部分对ucore实现页替换算法的潜在用处
-        > 1. 组成：
-        >       - PDE高20位存储对应二级页表物理地址的高20位，低12位中有一些为标志位：bit 0为PTE_P表示二级页表是否存在，bit 1为PTE_W表示是否可写，bit 2为PTE_U表示用户是否可访问；其余为保留位
-        >       - PTE结构类似，高20位存储对应物理页的物理地址高20位，但是当该页被换出时，高24位表示该页在硬盘上的起始扇区地址；PDE的标志位PTE也具有，而且PTE还有其他标志位：bit 5为PTE_A，表示该页被访问过，bit 6为PTE_D，表示该页被修改过；其他位也是保留位
-        > 2. 潜在用途：
-        >       - 首先对于保存地址的部分，在虚拟地址映射中用于寻找一个虚地址对应的物理地址，而在页替换中，可以用来找到一个被换出的物理页在硬盘上的实际位置
-        >       - 对于标志位，PDE的标志位主要用于对PTE的控制，与页替换算法无太大关系；但PTE的标志位十分重要，PTE_P用来表示一个页是否存在于内存中，若该位为0则可能要从硬盘中换入页；PTE_W和PTE_U用于页的权限控制；PTE_A可以表示一个页是否被访问过，在页替换算法中，可以用于判断被换出页的优先级，未被访问过的页会被优先淘汰；PTE_D表示一个页是否被修改过，在页替换算法中，可以用来判断一个页被淘汰时是否需要写入硬盘
-    2. 如果ucore的缺页服务例程在执行过程中访问内存，出现了页访问异常，请问硬件要做哪些事情？
-        > - 一般来讲，缺页服务例程作为核心代码应该常驻内存中，不会在执行缺页服务例程过程中出现页访问异常
-        > - 但如果真的出现这种情况，那么硬件会像其他中断/异常一样，依次将eflags, cs, eip寄存器压入核心栈，还会将错误码压入栈中，随后查找IDT并嵌套转入PAGE FAULT处理服务例程
-        > - 在执行过程中会再次出现相同的异常，导致死循环
-
+    - 请说明proc_struct中`struct context context`和`struct trapframe *tf`成员变量含义和在本实验中的作用是啥？
+        > 1. `context`；
+        >       - 含义是进程运行时的上下文（即处理机中部分寄存器的值），其包含信息如下：
+        >           ```c
+        >               struct context {
+        >                   uint32_t eip;
+        >                   uint32_t esp;
+        >                   uint32_t ebx;
+        >                   uint32_t ecx;
+        >                   uint32_t edx;
+        >                   uint32_t esi;
+        >                   uint32_t edi;
+        >                   uint32_t ebp;
+        >               };
+        >           ```
+        >       - 作用：进程（线程）执行时有着自己的控制流，而控制流包括寄存器值和堆栈，这里，`context`就是用来保存这些运行时控制流信息的结构，其中包括当前执行的指令地址%eip, 当前堆栈信息%esp, %ebp, 以及通用寄存器值（除了%eax, 因为%eax用于保存返回值）。利用`context`，在进程切换时只需执行`switch_to()`变更当前处理机中`context`所包含的内容即可实现控制流的上下文切换
+        > 2. `tf`；
+        >       - 含义同中断/异常处理时含义相同，即复用了trapfram结构用来保存各段寄存器值和%eflags的值
+        >       - 作用：主要用于解决新进程刚被创建后如何开始执行的问题。创建新的内核进程使用函数`kernel_thread()`，在其中会对被创建进程的tf进行初始化设置如下：
+        >           ```c
+        >               tf.tf_cs = KERNEL_CS;
+        >               tf.tf_ds = tf.tf_es = tf.tf_ss = KERNEL_DS;
+        >               tf.tf_regs.reg_ebx = (uint32_t)fn;              // this is the function this thread will truly exec
+        >               tf.tf_regs.reg_edx = (uint32_t)arg;             // this is the arg of fn
+        >               tf.tf_eip = (uint32_t)kernel_thread_entry;      // as soon as the kthread start to run, it will exec k_t_entry
+        >               return do_fork(clone_flags | CLONE_VM, 0, &tf);
+        >           ```
+        >           可以看到这里对各段寄存器进行了预设，格外需要注意的是，将`tf`中的%ebx，%edx设为了线程主函数和其参数，而%eip设为了函数`kernel_thread_entry()`，而后在调用`do_fork()`实际创建出这个线程时，在调用`copy_thread`时将`context`中的%eip设为了`forkret()`. 那么，在该线程被创建、就绪，并且第一次被执行时，通过`switch_to()`将其`context`恢复到处理机中，那么它执行的第一条指令是`forkret()`，进而调用trapentry.S中的`forkrets`函数，
 ### 练习4.2 为新创建的内核线程分配资源
 
 1. **原理简述**
