@@ -38,6 +38,10 @@ static struct pseudodesc idt_pd = {
     sizeof(idt) - 1, (uintptr_t)idt
 };
 
+// LAB1 YOU SHOULD ALSO COPY THIS
+/* temporary trapframe or pointer to trapframe */
+struct trapframe switchk2u, *switchu2k;
+
 /* idt_init - initialize IDT to each of the entry points in kern/trap/vectors.S */
 void
 idt_init(void) {
@@ -53,6 +57,17 @@ idt_init(void) {
       *     You don't know the meaning of this instruction? just google it! and check the libs/x86.h to know more.
       *     Notice: the argument of lidt is idt_pd. try to find it!
       */
+    // 1. get vectors
+    extern uintptr_t __vectors[];
+    // 2. setup entries
+    for (int i = 0; i < 256; i++) {
+        SETGATE(idt[i], 0, GD_KTEXT, __vectors[i], DPL_KERNEL);
+    }
+	// set RPL of switch_to_kernel as user 
+    SETGATE(idt[T_SWITCH_TOK], 0, GD_KTEXT, __vectors[T_SWITCH_TOK], DPL_USER);
+    // 3. LIDT
+    lidt(&idt_pd);
+
      /* LAB5 YOUR CODE */ 
      //you should update your lab1 code (just add ONE or TWO lines of code), let user app to use syscall to get the service of ucore
      //so you should setup the syscall interrupt gate in here
@@ -219,6 +234,12 @@ trap_dispatch(struct trapframe *tf) {
          * (2) Every TICK_NUM cycle, you can print some info using a funciton, such as print_ticks().
          * (3) Too Simple? Yes, I think so!
          */
+        ticks++;
+        if (ticks % TICK_NUM == 0) {
+            print_ticks();
+        }
+        break;
+
         /* LAB5 YOUR CODE */
         /* you should upate you lab1 code (just add ONE or TWO lines of code):
          *    Every TICK_NUM cycle, you should set current process's current->need_resched = 1
@@ -235,9 +256,22 @@ trap_dispatch(struct trapframe *tf) {
         break;
     //LAB1 CHALLENGE 1 : YOUR CODE you should modify below codes.
     case T_SWITCH_TOU:
-    case T_SWITCH_TOK:
-        panic("T_SWITCH_** ??\n");
+        switchk2u = *tf;
+        switchk2u.tf_cs = USER_CS;
+        switchk2u.tf_ds = USER_DS;
+        switchk2u.tf_es = USER_DS;
+        switchk2u.tf_ss = USER_DS;
+        switchk2u.tf_eflags |= FL_IOPL_MASK;
+        *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
         break;
+    case T_SWITCH_TOK:
+        tf->tf_cs = KERNEL_CS;
+        tf->tf_ds = KERNEL_DS;
+        tf->tf_es = KERNEL_DS;
+        tf->tf_eflags &= ~FL_IOPL_MASK;
+        break;
+    // end of copy
+    
     case IRQ_OFFSET + IRQ_IDE1:
     case IRQ_OFFSET + IRQ_IDE2:
         /* do nothing */
