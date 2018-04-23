@@ -8,6 +8,8 @@
 #include <mmu.h>
 #include <default_pmm.h>
 #include <kdebug.h>
+// LAB3 : include ENHANCED CLOCK
+#include <swap_enclock.h>
 
 // the valid vaddr for check is between 0~CHECK_VALID_VADDR-1
 #define CHECK_VALID_VIR_PAGE_NUM 5
@@ -39,8 +41,10 @@ swap_init(void)
           panic("bad max_swap_offset %08x.\n", max_swap_offset);
      }
      
-
-     sm = &swap_manager_fifo;
+    // LAB3 : set sm as FIFO/ENHANCED CLOCK
+    sm = &swap_manager_fifo;
+    // sm = &swap_manager_enclock;
+    
      int r = sm->init();
      
      if (r == 0)
