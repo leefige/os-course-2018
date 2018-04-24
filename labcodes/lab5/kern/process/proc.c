@@ -103,7 +103,7 @@ alloc_proc(void) {
      *       uint32_t flags;                             // Process flag
      *       char name[PROC_NAME_LEN + 1];               // Process name
      */
-    //LAB5 YOUR CODE : (update LAB4 steps)
+    //LAB5 2015010062 : (update LAB4 steps)
     /*
      * below fields(add in LAB5) in proc_struct need to be initialized	
      *       uint32_t wait_state;                        // waiting state
@@ -119,6 +119,11 @@ alloc_proc(void) {
         proc->tf = NULL;
         proc->cr3 = boot_cr3;   // kernel threads share boot_cr3
         proc->flags = 0;
+        // NEW
+        proc->wait_state = 0;
+        proc->cptr = NULL;
+        proc->yptr = NULL;
+        proc->optr = NULL;
 
         memset(&(proc->context), 0, sizeof(struct context));
         memset(proc->name, 0, sizeof(char) * (PROC_NAME_LEN + 1));   
@@ -409,7 +414,7 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
     //    6. call wakeup_proc to make the new child process RUNNABLE
     //    7. set ret vaule using child proc's pid
 
-	//LAB5 YOUR CODE : (update LAB4 steps)
+	//LAB5 2015010062 : (update LAB4 steps)
    /* Some Functions
     *    set_links:  set the relation links of process.  ALSO SEE: remove_links:  lean the relation links of process 
     *    -------------------
@@ -421,6 +426,8 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
     if (proc == NULL) {
         goto fork_out;
     }
+    // update
+    assert(current->wait_state == 0);
     proc->parent = current;
     //    2. call setup_kstack to allocate a kernel stack for child process
     if (setup_kstack(proc) != 0) {
@@ -439,7 +446,9 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
     {
         proc->pid = get_pid();
         hash_proc(proc);
-        list_add(&proc_list, &(proc->list_link));
+        // list_add(&proc_list, &(proc->list_link));
+        // update
+        set_links(proc);
         nr_process++;
     }
     local_intr_restore(intr_flag);

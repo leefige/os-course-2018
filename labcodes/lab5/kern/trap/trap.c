@@ -68,9 +68,10 @@ idt_init(void) {
     // 3. LIDT
     lidt(&idt_pd);
 
-     /* LAB5 YOUR CODE */ 
+     /* LAB5 2015010062 */ 
      //you should update your lab1 code (just add ONE or TWO lines of code), let user app to use syscall to get the service of ucore
      //so you should setup the syscall interrupt gate in here
+    SETGATE(idt[T_SYSCALL], 1, GD_KTEXT, __vectors[T_SYSCALL], DPL_USER);
 }
 
 static const char *
@@ -238,13 +239,11 @@ trap_dispatch(struct trapframe *tf) {
         if (ticks % TICK_NUM == 0) {
             print_ticks();
         }
-        break;
-
-        /* LAB5 YOUR CODE */
+        /* LAB5 2015010062 */
         /* you should upate you lab1 code (just add ONE or TWO lines of code):
          *    Every TICK_NUM cycle, you should set current process's current->need_resched = 1
          */
-  
+        current->need_resched = 1;
         break;
     case IRQ_OFFSET + IRQ_COM1:
         c = cons_getc();
