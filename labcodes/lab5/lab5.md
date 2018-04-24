@@ -45,6 +45,39 @@
         set_links(proc);
         ```
 
+#### 迁移结果
+
+在完成上述的迁移和代码更新后执行`make qemu`，可以看到如下的结果：
+    ```gdb
+    ...
+    check_swap() succeeded!
+    ++ setup timer interrupts
+    kernel_execve: pid = 2, name = "exit".
+    trapframe at 0xc038bf54
+    edi  0x00000000
+    esi  0x00000000
+    ebp  0x00000000
+    oesp 0xc038bf74
+    ebx  0x00000000
+    edx  0x00000000
+    ecx  0x00000000
+    eax  0x00000000
+    ds   0x----0000
+    es   0x----0000
+    fs   0x----0000
+    gs   0x----0000
+    trap 0x0000000d General Protection
+    err  0x00000000
+    eip  0xc01035b4
+    cs   0x----0008
+    flag 0x00000282 SF,IF,IOPL=0
+    unhandled trap.
+    all user-mode processes have quit.
+    kernel panic at kern/process/proc.c:855:
+        assertion failed: nr_process == 2
+    ...
+    ```
+可见在执行`kernel_execve: pid = 2, name = "exit".`对应语句时触发了异常，经检查是在执行`user_main()`欲加载`exit`用户程序时触发，通过输出，确认在syscall过程中没有异常，于是确定是因为`load_icode()`尚未填写完全导致执行用户进程出错，这正是练习1中的内容
 
 ### 练习5.1 加载应用程序并执行
 
