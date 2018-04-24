@@ -10,7 +10,41 @@
 
 ### 练习5.0 填写已有实验
 
-- **对已完成的实验1/2/3/4的代码改进**
+#### 对已完成的实验1/2/3/4的代码改进
+
+1. trap.c
+    - 在`idt_init()`中，需要增加对syscall的支持，即设置syscall的TRAP_GATE，一方面需要设置RPL为用户级，另一方面需要设置其`istrap`标志为1，实现如下：
+        ```c
+        SETGATE(idt[T_SYSCALL], 1, GD_KTEXT, __vectors[T_SYSCALL], DPL_USER);
+        ```
+    - 在`trap_dispatch()`中，需要设置时钟中断时每个TICK_NUM cycle时将当前正在执行的进程的`need_resched`置为1，即需要调度，实现如下：
+        ```c
+        if (ticks % TICK_NUM == 0) {
+            print_ticks();
+            current->need_resched = 1;  // updated in lab 5
+        }
+        ```
+2. proc.c
+    - 在`alloc_proc()`中，需要对新增的两个变量进行初始化如下：
+        ```c
+        proc->wait_state = 0;
+        proc->cptr = NULL;
+        proc->yptr = NULL;
+        proc->optr = NULL;
+        ```
+    - 在`do_fork()`中，需要检查当前进程的`wait_state`是否为0，还需设置子进程的`parent`为当前进程，实现如下：
+        ```c
+        // update
+        assert(current->wait_state == 0);
+        proc->parent = current;
+        ```
+        此外还需要在插入PCB到相应列表中时设置相关连接关系，这里调用`set_links()`即可，不过需要注意，在`set_links()`中已经包含了插入链表的操作，需要将lab 4中的相同操作去掉，实现如下：
+        ```c
+        // update
+        // list_add(&proc_list, &(proc->list_link));    // deleted
+        set_links(proc);
+        ```
+
 
 ### 练习5.1 加载应用程序并执行
 
