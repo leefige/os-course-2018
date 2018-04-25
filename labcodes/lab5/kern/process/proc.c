@@ -302,7 +302,7 @@ setup_pgdir(struct mm_struct *mm) {
         return -E_NO_MEM;
     }
     pde_t *pgdir = page2kva(page);
-    memcpy(pgdir, boot_pgdir, PGSIZE);
+    memcpy(pgdir, boot_pgdir, PGSIZE);      // NOTE: all pgdir include boot_pgdir
     pgdir[PDX(VPT)] = PADDR(pgdir) | PTE_P | PTE_W;
     mm->pgdir = pgdir;
     return 0;
@@ -596,7 +596,7 @@ load_icode(unsigned char *binary, size_t size) {
             if (end < la) {
                 size -= la - end;
             }
-            memcpy(page2kva(page) + off, from, size);
+            memcpy(page2kva(page) + off, from, size);   // corresponding pte has been inserted in pgdir_alloc_page()
             start += size, from += size;
         }
 
@@ -641,7 +641,7 @@ load_icode(unsigned char *binary, size_t size) {
     mm_count_inc(mm);
     current->mm = mm;
     current->cr3 = PADDR(mm->pgdir);
-    lcr3(PADDR(mm->pgdir));
+    lcr3(PADDR(mm->pgdir));     // NOTE: update cr3
 
     //(6) setup trapframe for user environment
     struct trapframe *tf = current->tf;
@@ -655,6 +655,14 @@ load_icode(unsigned char *binary, size_t size) {
      *          tf_eip should be the entry point of this binary program (elf->e_entry)
      *          tf_eflags should be set to enable computer to produce Interrupt
      */
+    tf->tf_cs = USER_CS;
+    tf->tf_ds = USER_DS;
+    tf->tf_es = USER_DS;
+    tf->tf_ss = USER_DS;
+    tf->tf_esp = USTACKTOP;
+    tf->tf_eip = elf->e_entry;
+    tf->tf_eflags |= FL_IF;     // enable intr
+    
     ret = 0;
 out:
     return ret;
