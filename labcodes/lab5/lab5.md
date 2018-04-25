@@ -48,6 +48,7 @@
 #### 迁移结果
 
 在完成上述的迁移和代码更新后执行`make qemu`，可以看到如下的结果：
+
     ```gdb
     ...
     check_swap() succeeded!
@@ -164,7 +165,7 @@
         - 若在复制内核空间时失败，则需要清理栈和PCB再退出，那么返回`bad_fork_cleanup_kstack`
     - 另外需要注意，分配PCB后，要手动在`do_fork`中为PCB指定其父进程为当前进程，即`proc->parent = current`
     - 此外，在将PCB插入list并增加PCB数量时，由于涉及全局信息修改，需要保证操作原子性，所以需要暂时屏蔽中断
-    - 完成后，运行`make qemu`可以看到如下结果，可见已经成功创建了第0个和第1个线程，并成功执行了`init_proc`线程输出了"Hello world!!"信息，最后正常通过`do_exit()`退出：
+    - 在进行上述全部修改后，执行`make qemu`却遇到`nr_process`的assertion failure，经过检查是因为我在迁移并更新过去代码时，在`do_fork()`中虽然改用了`set_links()`并注释掉了`list_add()`，但没有取消原有的`nr_process++`导致重复了对`nr_process`的操作；修正后，运行`make qemu`可以看到如下结果，可见已经顺利地执行完毕`exit`用户进程，并且通过所有检测，最终init_proc退出，运行结束：
         ```gdb
             ...
             ++ setup timer interrupts
@@ -172,30 +173,62 @@
             I am the parent. Forking the child...
             I am parent, fork a child pid 3
             I am the parent, waiting now..
-            not valid addr 0, and  can not find it in vma
-            trapframe at 0xc039cfb4
-            edi  0x00000000
-            esi  0xafffffa8
-            ebp  0xafffff6c
-            oesp 0xc039cfd4
-            ebx  0x00801320
-            edx  0xafffff88
-            ecx  0x008001c3
-            eax  0x00000000
-            ds   0x----0023
-            es   0x----0023
-            fs   0x----0000
-            gs   0x----0000
-            trap 0x0000000e Page Fault
-            err  0x00000004
-            eip  0x008000fd
-            cs   0x----001b
-            flag 0x00000202 IF,IOPL=0
-            esp  0xafffff40
-            ss   0x----0023
-            killed by kernel.
-            kernel panic at kern/trap/trap.c:218:
-                handle user mode pgfault failed. ret=-3
+            I am the child.
+            waitpid 3 ok.
+            exit pass.
+            all user-mode processes have quit.
+            init check memory pass.
+            kernel panic at kern/process/proc.c:480:
+                initproc exit.
+        ```
+    - 随后执行`make grade`，却发现在spin和waitkill用户进程出现WRONG，经过比对标准输出，发现我在时钟中断时仍然输出了`100 ticks`，但标准输出中已经没有该输出，去掉这一输出后再次测试，可见通过了全部测试：
+        ```c
+        badsegment:              (4.6s)
+        -check result:                             OK
+        -check output:                             OK
+        divzero:                 (2.7s)
+        -check result:                             OK
+        -check output:                             OK
+        softint:                 (2.5s)
+        -check result:                             OK
+        -check output:                             OK
+        faultread:               (2.7s)
+        -check result:                             OK
+        -check output:                             OK
+        faultreadkernel:         (3.2s)
+        -check result:                             OK
+        -check output:                             OK
+        hello:                   (2.8s)
+        -check result:                             OK
+        -check output:                             OK
+        testbss:                 (2.7s)
+        -check result:                             OK
+        -check output:                             OK
+        pgdir:                   (2.5s)
+        -check result:                             OK
+        -check output:                             OK
+        yield:                   (2.6s)
+        -check result:                             OK
+        -check output:                             OK
+        badarg:                  (2.6s)
+        -check result:                             OK
+        -check output:                             OK
+        exit:                    (2.5s)
+        -check result:                             OK
+        -check output:                             OK
+        spin:                    (5.4s)
+        -check result:                             OK
+        -check output:                             OK
+        waitkill:                (14.9s)
+        -check result:                             OK
+        -check output:                             OK
+        forktest:                (2.8s)
+        -check result:                             OK
+        -check output:                             OK
+        forktree:                (2.4s)
+        -check result:                             OK
+        -check output:                             OK
+        Total Score: 150/150
         ```
 
 3. **回答问题**
