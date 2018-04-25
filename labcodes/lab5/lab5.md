@@ -78,28 +78,38 @@
         assertion failed: nr_process == 2
     ...
     ```
-可见在执行`kernel_execve: pid = 2, name = "exit".`对应语句时触发了异常，经检查是在执行`user_main()`欲加载`exit`用户程序时触发，通过输出，确认在syscall过程中没有异常，于是确定是因为`load_icode()`尚未填写完全导致执行用户进程出错，这正是练习1中的内容
+可见在执行`kernel_execve: pid = 2, name = "exit".`对应语句时触发了General Protection异常，经检查是在执行`user_main()`欲加载`exit`用户程序时触发，通过输出，确认在syscall过程中没有异常，于是确定是因为`load_icode()`尚未填写完全导致执行用户进程出错，这正是练习1中的内容
 
 ### 练习5.1 加载应用程序并执行
 
 1. **原理简述**
-    1. 练习1中`alloc_proc()`只是为进程分配了PCB资源，但还未为其分配运行所需的内存空间、栈等资源。考虑进程创建的方式，第一个内核线程事实上就是从初始运行至创建第二个内核线程之前的OS kernel本身，在`proc_init()`中，它为自己创建一个PCB并为自己命名为`idleproc`，将这个PCB的kstack指向自己运行至今的栈`bootstack`；在有了这一初始进程后，随后的内核线程都利用`fork`的方法创建，内核线程创建接口为`int kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags)`，它在内部使用`do_fork()`通过fork当前进程创建新进程，并返回子进程的pid
-    2. 那么，为新建进程的资源分配过程在`do_fork()`中完成，它包含以下过程：
-        1. 创建子进程的PCB：`alloc_proc()`
-        2. 创建子进程的内核栈：`setup_kstack()`
-        3. 为子进程复制内存空间：`copy_mm()`，注意，在创建内核线程时事实上不需要执行复制，因为内核线程共享OS kernel启动时设置好的内存空间，这在本实验中体现在`copy_mm()`中实际未执行任何操作
-        4. 复制控制流上下文信息：`copy_thread()`，用来初始化`context`和`tf`，而二者的具体作用已经在 _练习4.2_ 的问题回答部分予以解释
-        5. 将子进程的PCB插入PCB list，这一步因为涉及修改全局信息，因此需要暂时屏蔽中断，以保证操作的原子性
-        6. 通过`wakeup_proc()`设置子线程为`RUNNABLE`，即就绪状态
-        7. 返回子进程的pid
+    1. lab 4中，第二个内核线程仅仅实现了输出"Hello world"的功能，而在本实验中，这一进程被用来创建用户进程，方法是调用`kernel_thread(user_main, NULL, 0)`以`user_main()`作为用户进程的主函数
+    2. 在本实验中，由于还未实现文件系统，因此加载应用程序只能将全部应用程序都编译并写入内存，加载时根据其elf信息再将目标程序拷贝至用户程序的目标内存位置，这里使用了一个tricky的方法，即在`user_main()`中调用定义好的宏`KERNEL_EXECVE2(TEST, TESTSTART, TESTSIZE)`来加载目标应用程序`TEST`，在一系列调用后会执行`kernel_execve(const char *name, unsigned char *binary, size_t size)`函数，其中调用了`SYS_exec`的系统调用，实现了对应用程序的加载
+    3. `SYS_exec`系统调用对应的处理例程为`do_execve()`，其流程如下：
+        1. 检测当前进程已有的`mm`
+        2. 对旧`mm`的清理，包括清理映射关系、释放页表、`mm`销毁
+        3. 调用`load_icode()`读取应用程序的二进制文件到内存中的适当位置
+        4. 给进程重命名为指定的进程名，并返回；由于这里是系统调用，故返回会进一步触发中断返回，这会让进程从trapframe中重新加载%eip等寄存器，并从新加载的应用程序的入口开始执行
+    4. 本练习中主要需要补充的部分在`load_icode()`中，`load_icode()`包括以下流程：
+        1. 新建`mm`，新建页目录表，注意，在新建页目录表时，已经将内核页目录表即`boot_pgdir`拷贝到新页目录表中（当然也重建了页表自映射），并将`mm`的`pgdir`成员设置为该新建的页目录表
+        2. 读取指定的elf文件，并对各代码段依次建立vma，分配物理页，并拷贝至目标物理内存
+        3. 对应用程序的bss段进行初始化
+        4. 建立用户栈空间，即建立USERSTACK在`mm`中的映射
+        5. 将上面建立的`mm`赋值给当前进程，同时重新加载%cr3为当前进程的页目录表
+        6. 建立用户进程的trapframe，这是本练习需要完成的部分，其目的是设置用户进程转入执行时需要拥有的状态，如各段寄存器值、栈顶位置、中断状态，尤其是%eip需要设置为应用程序elf文件中指定的入口`elf->e_entry`
+        7. 加载完毕，返回
 
 2. **实现方法**
-    - 步骤基本按照上述原理中叙述进行，需要注意的是，要处理可能出现的异常状况：
-        - 若在分配PCB时就失败，则直接失败退出
-        - 若在分配内核栈时失败，则需要先清理已经分配的PCB再退出，那么返回`bad_fork_cleanup_proc`
-        - 若在复制内核空间时失败，则需要清理栈和PCB再退出，那么返回`bad_fork_cleanup_kstack`
-    - 另外需要注意，分配PCB后，要手动在`do_fork`中为PCB指定其父进程为当前进程，即`proc->parent = current`
-    - 此外，在将PCB插入list并增加PCB数量时，由于涉及全局信息修改，需要保证操作原子性，所以需要暂时屏蔽中断
+    - 主要需要实现对用户进程trapframe的初始化，将段寄存器设置为用户值，将%esp设置为用户栈顶，将%eip设置为应用程序入口，并开启用户进程的中断，实现方法如下：
+        ```c
+        tf->tf_cs = USER_CS;
+        tf->tf_ds = USER_DS;
+        tf->tf_es = USER_DS;
+        tf->tf_ss = USER_DS;
+        tf->tf_esp = USTACKTOP;
+        tf->tf_eip = elf->e_entry;
+        tf->tf_eflags |= FL_IF;     // enable intr
+        ```
     - 完成后，运行`make qemu`可以看到如下结果，可见已经成功在用户进程中加载了目标代码（`exit`），并且父进程代码执行顺利，直到父进程进入等待状态转而执行子进程时，触发了无法处理的Page Fault，这是由于父进程利用系统调用fork产生子进程的代码尚未补完，这涉及到练习2相关内容：
         ```gdb
             ...
@@ -136,14 +146,11 @@
 
 3. **回答问题**
     - 描述创建一个用户态进程并加载了应用程序后，CPU是如何让这个应用程序最终在用户态执行起来的。即这个用户态进程被ucore选择占用CPU执行（RUNNING态）到具体执行应用程序第一条指令的整个经过。
-        > - fork时分配PID的工作由静态函数`static int get_pid()`实现，在该静态函数中定义了两个静态变量，初始化为`static int next_safe = MAX_PID, last_pid = MAX_PID`，这个赋值语句只会在初始化时被执行一次，其中`last_pid`表示可能的候选pid，`next_safe`表示当前 **连续** 可用pid的上界
-        > - 在实际被调用时，首先直接对`last_pid`加一，若它大于等于`MAX_PID`，说明一轮查找到头了，让其返回1重新开始查找；否则，若`last_pid`小于`next_safe`，说明该pid可用，返回`last_pid`值；否则，即若`last_pid`大于等于`next_safe`，则进入一个循环开始查找可用pid
-        > - 在循环中，一方面需要查找可用的pid，另一方面还要刷新`next_safe`，这样在下次查找时可以继续采用比较`last_pid`是否小于`next_safe`从而快速找到一个可用的pid。具体做法是：
-        >   - 首先将`next_safe`置为`MAX_PID`，然后开始遍历PCB链表，若当前PCB的pid小于`last_pid`，则查找下一个PCB，相当于增加当前可用pid的下界
-        >   - 若发现当前PCB的pid等于`last_pid`，说明找到了可能的一段连续pid的下界，将`last_pid`加一并与`next_safe`比较，若`last_pid`大于等于`next_safe`说明`next_safe`需要刷新，将其置为`MAX_PID`（当然，在任何时候做`last_pid`加一操作后，都需要检查是否越界，越界则让其返回1），然后重新从头开始遍历
-        >   - 若发现当前PCB的pid大于`last_pid`（注意，上一步做了`last_pid`加一操作，故上次导致中断的与旧的`last_pid`相等的PCB->pid现在已经小于`last_pid`，被直接跳过），说明可能找到了这一段连续可用pid的上界，这时判断`next_safe`是否大于这一值，若是，则更新`next_safe`为这个值（即上界），否则继续遍历、继续尝试更新`next_safe`，直到循环结束
-        >   - 最后若对PCB列表的循环完整进行一次并结束循环后，说明`next_safe`的值已经更新为当前一段连续可用pid的紧的上界，而`last_pid`也已经指向该连续区域的下界，返回`last_pid`作为分配的pid即可
-        > - 根据以上分析，可以看到ucore给每个新fork的线程分配的pid一定是唯一的，当然，这里需要注意因为涉及对全局静态变量的更新，因此应该屏蔽中断，以避免出现同步方面的问题
+        > 1. 假设该进程是被刚刚创建出来的新进程，那么在该用户态进程被ucore选择占用CPU执行（进入RUNNING态）后，首先通过切换context从其context中恢复出%eip的值，这个值是在`copy_thread()`中设置好的`proc->context.eip = (uintptr_t)forkret`
+        > 2. `forkret()`中调用`forkrets()`，进而通过`__trapret()`利用trapframe中断返回
+        > 3. 若该进程由用户进程fork得来，那么trapframe中%eip值为父进程执行到fork语句的下一条指令，子进程fork后拥有和父进程相同的代码和数据，因此继续从该条指令向下执行父进程代码，直到遇到exec系统调用则加载新应用程序
+        > 4. 但是，若该进程由内核线程创建，例如ucore创建第一个用户进程时，则略有不同，这种情况下使用`kernel_thread`创建进程，这一过程中对trapframe进行了一些人为设置，最重要的是将其`tf_eip`设置为`tf.tf_eip = (uint32_t)kernel_thread_entry`，这样，在`__trapret()`利用trapframe中断返回后会先执行`kernel_thread_entry()`，这个函数会进一步调用在trapframe中设置好的参数（用户进程主函数及其参数），如ucore创建的第一个用户进程主函数为`user_main()`，在这一函数中又通过exec系统调用加载真正要执行的用户程序
+        > 5. exec系统调用由服务例程`do_execve()`处理，它的执行过程在上面的 **原理简述** 中已有详细说明，而它是通过在内部调用`load_icode()`时更改当前进程的trapframe中的tf_eip：`tf->tf_eip = elf->e_entry`，将elf文件给出的入口entry指定为应用程序的入口，进而在系统调用处理完毕、利用trapframe中断返回时，会将这一入口恢复到%eip中，这样%eip就指向了应用程序的第一条指令，并且从这里开始执行
 
 ### 练习5.2 父进程复制自己的内存空间给子进程
 
