@@ -81,65 +81,68 @@
 
 ### 练习5.1 加载应用程序并执行
 
-1. **原理和实现**
-    1. 操作系统中对一个进程是否存在的唯一标识是其进程控制块PCB，ucore中PCB由内核管理，以结构体`struct proc_struct`的形式存在，其中包含与进程相关的各类信息，包括进程标识信息（PID, name等）、存储管理信息（mm, cr3等）、处理机现场信息（context等）、进程调度信息（need_resched等），以及PCB之间的连接信息（即链表节点）
-    2. 每次创建新进程都需要创建一个对应的PCB，执行这一操作的函数是`alloc_proc`，它调用`kmalloc()`为PCB分配空间，并且执行其中成员值的初始化
-    3. 初始化中，大部分值被置为0，指针被置为空指针NULL，数组也初始化为0，包括：
-        ```c
-            proc->runs = 0;
-            proc->kstack = 0;
-            proc->need_resched = 0;
-            proc->parent = NULL;
-            proc->mm = NULL;
-            memset(&(proc->context), 0, sizeof(struct context));
-            proc->tf = NULL;
-            proc->flags = 0;
-            memset(proc->name, 0, sizeof(char) * (PROC_NAME_LEN + 1));
-        ```
-        其中要注意到，对于数组和结构体要使用`memset`进行连续内存空间的初始化
-    4. 除了这些值外，还有3个成员需要单独考虑，它们会被分配特定的值，包括：
-        ```c
-            proc->state = PROC_UNINIT;  // show that this PCB has just be alloced but not inited
-            proc->pid = -1;             // an invalid pid
-            proc->cr3 = boot_cr3;       // kernel threads share boot_cr3
-        ```
-        其中，state被初始化为`PROC_UNINIT`表明该PCB对应的进程还未被初始化，仅仅是分配了PCB而已；pid被置为-1也即一个非法值，那么这一PCB不在合法的PCB队列中；cr3被置为boot_cr3，因为这里创建的PCB是内核线程的PCB，而在ucore中内核线程共享同一地址空间，因此共享在kernel中以及创建的页表
+1. **原理简述**
+    1. 练习1中`alloc_proc()`只是为进程分配了PCB资源，但还未为其分配运行所需的内存空间、栈等资源。考虑进程创建的方式，第一个内核线程事实上就是从初始运行至创建第二个内核线程之前的OS kernel本身，在`proc_init()`中，它为自己创建一个PCB并为自己命名为`idleproc`，将这个PCB的kstack指向自己运行至今的栈`bootstack`；在有了这一初始进程后，随后的内核线程都利用`fork`的方法创建，内核线程创建接口为`int kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags)`，它在内部使用`do_fork()`通过fork当前进程创建新进程，并返回子进程的pid
+    2. 那么，为新建进程的资源分配过程在`do_fork()`中完成，它包含以下过程：
+        1. 创建子进程的PCB：`alloc_proc()`
+        2. 创建子进程的内核栈：`setup_kstack()`
+        3. 为子进程复制内存空间：`copy_mm()`，注意，在创建内核线程时事实上不需要执行复制，因为内核线程共享OS kernel启动时设置好的内存空间，这在本实验中体现在`copy_mm()`中实际未执行任何操作
+        4. 复制控制流上下文信息：`copy_thread()`，用来初始化`context`和`tf`，而二者的具体作用已经在 _练习4.2_ 的问题回答部分予以解释
+        5. 将子进程的PCB插入PCB list，这一步因为涉及修改全局信息，因此需要暂时屏蔽中断，以保证操作的原子性
+        6. 通过`wakeup_proc()`设置子线程为`RUNNABLE`，即就绪状态
+        7. 返回子进程的pid
 
-2. **回答问题** ：
-    - 请说明proc_struct中`struct context context`和`struct trapframe *tf`成员变量含义和在本实验中的作用是啥？
-        > 1. `context`；
-        >       - 含义是进程运行时的上下文（即处理机中部分寄存器的值），其包含信息如下：
-        >           ```c
-        >               struct context {
-        >                   uint32_t eip;
-        >                   uint32_t esp;
-        >                   uint32_t ebx;
-        >                   uint32_t ecx;
-        >                   uint32_t edx;
-        >                   uint32_t esi;
-        >                   uint32_t edi;
-        >                   uint32_t ebp;
-        >               };
-        >           ```
-        >       - 作用：进程（线程）执行时有着自己的控制流，而控制流包括寄存器值和堆栈，这里，`context`就是用来保存这些运行时控制流信息的结构，其中包括当前执行的指令地址%eip, 当前堆栈信息%esp, %ebp, 以及通用寄存器值（除了%eax, 因为%eax用于保存返回值）。利用`context`，在进程切换时只需执行`switch_to()`变更当前处理机中`context`所包含的内容即可实现控制流的上下文切换
-        > 2. `tf`；
-        >       - 含义同中断/异常处理时含义相同，即复用了trapfram结构用来保存各段寄存器值和%eflags的值
-        >       - 作用：主要用于解决新进程刚被创建后如何开始执行的问题。创建新的内核进程使用函数`kernel_thread()`，在其中会对被创建进程的tf进行初始化设置如下：
-        >           ```c
-        >               tf.tf_cs = KERNEL_CS;
-        >               tf.tf_ds = tf.tf_es = tf.tf_ss = KERNEL_DS;
-        >               tf.tf_regs.reg_ebx = (uint32_t)fn;              // this is the function this thread will truly exec
-        >               tf.tf_regs.reg_edx = (uint32_t)arg;             // this is the arg of fn
-        >               tf.tf_eip = (uint32_t)kernel_thread_entry;      // as soon as the kthread start to run, it will exec k_t_entry
-        >               return do_fork(clone_flags | CLONE_VM, 0, &tf);
-        >           ```
-        >           可以看到这里对各段寄存器进行了预设，格外需要注意的是，将`tf`中的%ebx，%edx设为了线程主函数和其参数，而%eip设为了函数`kernel_thread_entry()`；随后在调用`do_fork()`实际创建出这个线程时，在调用`copy_thread()`时将`context`中的%eip设为了`forkret()`. 那么，在该线程被创建、就绪，并且第一次被执行时，其执行流程如下：
-        >           1. 通过`switch_to()`将其`context`恢复到处理机中，那么它执行的第一条指令是`forkret()`
-        >           2. 进而以进程的`tf`（这是一个指针）为参数调用`trapentry.S::forkrets()`函数
-        >           3. 在`forkrets()`中，将参数`tf`的值赋给%esp，即让栈顶指向该进程内核栈的trapframe首地址，这就是内核栈的栈顶位置
-        >           4. 随后跳转到`__trapret()`，按照普通中断/异常的返回流程，将trapframe中的通用寄存器和段寄存器的值恢复到处理机中
-        >           5. 最后利用`iret`中断返回后，将从`tf.tf_eip`中指定的`entry.S::kernel_thread_entry()`开始执行，它通过`pushl %edx; call *%ebx`以之前指定在`tf`中的%edx值为参数、%ebx值为入口函数地址开始执行新进程真正的main函数
-        >           6. 新进程的main函数执行完毕返回`kernel_thread_entry()`后，通过`pushl %eax; call do_exit`将该进程的返回值%eax压栈作为参数，最后调用`do_exit`进程退出
+2. **实现方法**
+    - 步骤基本按照上述原理中叙述进行，需要注意的是，要处理可能出现的异常状况：
+        - 若在分配PCB时就失败，则直接失败退出
+        - 若在分配内核栈时失败，则需要先清理已经分配的PCB再退出，那么返回`bad_fork_cleanup_proc`
+        - 若在复制内核空间时失败，则需要清理栈和PCB再退出，那么返回`bad_fork_cleanup_kstack`
+    - 另外需要注意，分配PCB后，要手动在`do_fork`中为PCB指定其父进程为当前进程，即`proc->parent = current`
+    - 此外，在将PCB插入list并增加PCB数量时，由于涉及全局信息修改，需要保证操作原子性，所以需要暂时屏蔽中断
+    - 完成后，运行`make qemu`可以看到如下结果，可见已经成功在用户进程中加载了目标代码（`exit`），并且父进程代码执行顺利，直到父进程进入等待状态转而执行子进程时，触发了无法处理的Page Fault，这是由于父进程利用系统调用fork产生子进程的代码尚未补完，这涉及到练习2相关内容：
+        ```gdb
+            ...
+            ++ setup timer interrupts
+            kernel_execve: pid = 2, name = "exit".
+            I am the parent. Forking the child...
+            I am parent, fork a child pid 3
+            I am the parent, waiting now..
+            not valid addr 0, and  can not find it in vma
+            trapframe at 0xc039cfb4
+            edi  0x00000000
+            esi  0xafffffa8
+            ebp  0xafffff6c
+            oesp 0xc039cfd4
+            ebx  0x00801320
+            edx  0xafffff88
+            ecx  0x008001c3
+            eax  0x00000000
+            ds   0x----0023
+            es   0x----0023
+            fs   0x----0000
+            gs   0x----0000
+            trap 0x0000000e Page Fault
+            err  0x00000004
+            eip  0x008000fd
+            cs   0x----001b
+            flag 0x00000202 IF,IOPL=0
+            esp  0xafffff40
+            ss   0x----0023
+            killed by kernel.
+            kernel panic at kern/trap/trap.c:218:
+                handle user mode pgfault failed. ret=-3
+        ```
+
+3. **回答问题**
+    - 描述创建一个用户态进程并加载了应用程序后，CPU是如何让这个应用程序最终在用户态执行起来的。即这个用户态进程被ucore选择占用CPU执行（RUNNING态）到具体执行应用程序第一条指令的整个经过。
+        > - fork时分配PID的工作由静态函数`static int get_pid()`实现，在该静态函数中定义了两个静态变量，初始化为`static int next_safe = MAX_PID, last_pid = MAX_PID`，这个赋值语句只会在初始化时被执行一次，其中`last_pid`表示可能的候选pid，`next_safe`表示当前 **连续** 可用pid的上界
+        > - 在实际被调用时，首先直接对`last_pid`加一，若它大于等于`MAX_PID`，说明一轮查找到头了，让其返回1重新开始查找；否则，若`last_pid`小于`next_safe`，说明该pid可用，返回`last_pid`值；否则，即若`last_pid`大于等于`next_safe`，则进入一个循环开始查找可用pid
+        > - 在循环中，一方面需要查找可用的pid，另一方面还要刷新`next_safe`，这样在下次查找时可以继续采用比较`last_pid`是否小于`next_safe`从而快速找到一个可用的pid。具体做法是：
+        >   - 首先将`next_safe`置为`MAX_PID`，然后开始遍历PCB链表，若当前PCB的pid小于`last_pid`，则查找下一个PCB，相当于增加当前可用pid的下界
+        >   - 若发现当前PCB的pid等于`last_pid`，说明找到了可能的一段连续pid的下界，将`last_pid`加一并与`next_safe`比较，若`last_pid`大于等于`next_safe`说明`next_safe`需要刷新，将其置为`MAX_PID`（当然，在任何时候做`last_pid`加一操作后，都需要检查是否越界，越界则让其返回1），然后重新从头开始遍历
+        >   - 若发现当前PCB的pid大于`last_pid`（注意，上一步做了`last_pid`加一操作，故上次导致中断的与旧的`last_pid`相等的PCB->pid现在已经小于`last_pid`，被直接跳过），说明可能找到了这一段连续可用pid的上界，这时判断`next_safe`是否大于这一值，若是，则更新`next_safe`为这个值（即上界），否则继续遍历、继续尝试更新`next_safe`，直到循环结束
+        >   - 最后若对PCB列表的循环完整进行一次并结束循环后，说明`next_safe`的值已经更新为当前一段连续可用pid的紧的上界，而`last_pid`也已经指向该连续区域的下界，返回`last_pid`作为分配的pid即可
+        > - 根据以上分析，可以看到ucore给每个新fork的线程分配的pid一定是唯一的，当然，这里需要注意因为涉及对全局静态变量的更新，因此应该屏蔽中断，以避免出现同步方面的问题
 
 ### 练习5.2 父进程复制自己的内存空间给子进程
 
@@ -164,77 +167,39 @@
     - 完成后，运行`make qemu`可以看到如下结果，可见已经成功创建了第0个和第1个线程，并成功执行了`init_proc`线程输出了"Hello world!!"信息，最后正常通过`do_exit()`退出：
         ```gdb
             ...
-            check_alloc_page() succeeded!
-            check_pgdir() succeeded!
-            check_boot_pgdir() succeeded!
-            -------------------- BEGIN --------------------
-            PDE(0e0) c0000000-f8000000 38000000 urw
-            |-- PTE(38000) c0000000-f8000000 38000000 -rw
-            PDE(001) fac00000-fb000000 00400000 -rw
-            |-- PTE(000e0) faf00000-fafe0000 000e0000 urw
-            |-- PTE(00001) fafeb000-fafec000 00001000 -rw
-            --------------------- END ---------------------
-            use SLOB allocator
-            kmalloc_init() succeeded!
-            check_vma_struct() succeeded!
-            page fault at 0x00000100: K/W [no page found].
-            check_pgfault() succeeded!
-            check_vmm() succeeded.
-            ide 0:      10000(sectors), 'QEMU HARDDISK'.
-            ide 1:     262144(sectors), 'QEMU HARDDISK'.
-            SWAP: manager = fifo swap manager
-            BEGIN check_swap: count 1, total 31953
-            setup Page Table for vaddr 0X1000, so alloc a page
-            setup Page Table vaddr 0~4MB OVER!
-            set up init env for check_swap begin!
-            page fault at 0x00001000: K/W [no page found].
-            page fault at 0x00002000: K/W [no page found].
-            page fault at 0x00003000: K/W [no page found].
-            page fault at 0x00004000: K/W [no page found].
-            set up init env for check_swap over!
-            write Virt Page c in fifo_check_swap
-            write Virt Page a in fifo_check_swap
-            write Virt Page d in fifo_check_swap
-            write Virt Page b in fifo_check_swap
-            write Virt Page e in fifo_check_swap
-            page fault at 0x00005000: K/W [no page found].
-            swap_out: i 0, store page in vaddr 0x1000 to disk swap entry 2
-            write Virt Page b in fifo_check_swap
-            write Virt Page a in fifo_check_swap
-            page fault at 0x00001000: K/W [no page found].
-            swap_out: i 0, store page in vaddr 0x2000 to disk swap entry 3
-            swap_in: load disk swap entry 2 with swap_page in vadr 0x1000
-            write Virt Page b in fifo_check_swap
-            page fault at 0x00002000: K/W [no page found].
-            swap_out: i 0, store page in vaddr 0x3000 to disk swap entry 4
-            swap_in: load disk swap entry 3 with swap_page in vadr 0x2000
-            write Virt Page c in fifo_check_swap
-            page fault at 0x00003000: K/W [no page found].
-            swap_out: i 0, store page in vaddr 0x4000 to disk swap entry 5
-            swap_in: load disk swap entry 4 with swap_page in vadr 0x3000
-            write Virt Page d in fifo_check_swap
-            page fault at 0x00004000: K/W [no page found].
-            swap_out: i 0, store page in vaddr 0x5000 to disk swap entry 6
-            swap_in: load disk swap entry 5 with swap_page in vadr 0x4000
-            write Virt Page e in fifo_check_swap
-            page fault at 0x00005000: K/W [no page found].
-            swap_out: i 0, store page in vaddr 0x1000 to disk swap entry 2
-            swap_in: load disk swap entry 6 with swap_page in vadr 0x5000
-            write Virt Page a in fifo_check_swap
-            page fault at 0x00001000: K/R [no page found].
-            swap_out: i 0, store page in vaddr 0x2000 to disk swap entry 3
-            swap_in: load disk swap entry 2 with swap_page in vadr 0x1000
-            count is 0, total is 5
-            check_swap() succeeded!
             ++ setup timer interrupts
-            this initproc, pid = 1, name = "init"
-            To U: "Hello world!!".
-            To U: "en.., Bye, Bye. :)"
-            kernel panic at kern/process/proc.c:353:
-                process exit!!.
+            kernel_execve: pid = 2, name = "exit".
+            I am the parent. Forking the child...
+            I am parent, fork a child pid 3
+            I am the parent, waiting now..
+            not valid addr 0, and  can not find it in vma
+            trapframe at 0xc039cfb4
+            edi  0x00000000
+            esi  0xafffffa8
+            ebp  0xafffff6c
+            oesp 0xc039cfd4
+            ebx  0x00801320
+            edx  0xafffff88
+            ecx  0x008001c3
+            eax  0x00000000
+            ds   0x----0023
+            es   0x----0023
+            fs   0x----0000
+            gs   0x----0000
+            trap 0x0000000e Page Fault
+            err  0x00000004
+            eip  0x008000fd
+            cs   0x----001b
+            flag 0x00000202 IF,IOPL=0
+            esp  0xafffff40
+            ss   0x----0023
+            killed by kernel.
+            kernel panic at kern/trap/trap.c:218:
+                handle user mode pgfault failed. ret=-3
         ```
+
 3. **回答问题**
-    - 请说明ucore是否做到给每个新fork的线程一个唯一的id？请说明你的分析和理由
+    - 简要说明如何设计实现“Copy on Write 机制”，给出概要设计
         > - fork时分配PID的工作由静态函数`static int get_pid()`实现，在该静态函数中定义了两个静态变量，初始化为`static int next_safe = MAX_PID, last_pid = MAX_PID`，这个赋值语句只会在初始化时被执行一次，其中`last_pid`表示可能的候选pid，`next_safe`表示当前 **连续** 可用pid的上界
         > - 在实际被调用时，首先直接对`last_pid`加一，若它大于等于`MAX_PID`，说明一轮查找到头了，让其返回1重新开始查找；否则，若`last_pid`小于`next_safe`，说明该pid可用，返回`last_pid`值；否则，即若`last_pid`大于等于`next_safe`，则进入一个循环开始查找可用pid
         > - 在循环中，一方面需要查找可用的pid，另一方面还要刷新`next_safe`，这样在下次查找时可以继续采用比较`last_pid`是否小于`next_safe`从而快速找到一个可用的pid。具体做法是：
