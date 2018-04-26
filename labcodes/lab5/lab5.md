@@ -195,55 +195,6 @@
             kernel panic at kern/process/proc.c:480:
                 initproc exit.
         ```
-    - 随后执行`make grade`，却发现在spin和waitkill用户进程出现WRONG，经过比对标准输出，发现我在时钟中断时仍然输出了`100 ticks`，但标准输出中已经没有该输出，去掉这一输出后再次测试，可见通过了全部测试：
-        ```c
-        badsegment:              (4.6s)
-        -check result:                             OK
-        -check output:                             OK
-        divzero:                 (2.7s)
-        -check result:                             OK
-        -check output:                             OK
-        softint:                 (2.5s)
-        -check result:                             OK
-        -check output:                             OK
-        faultread:               (2.7s)
-        -check result:                             OK
-        -check output:                             OK
-        faultreadkernel:         (3.2s)
-        -check result:                             OK
-        -check output:                             OK
-        hello:                   (2.8s)
-        -check result:                             OK
-        -check output:                             OK
-        testbss:                 (2.7s)
-        -check result:                             OK
-        -check output:                             OK
-        pgdir:                   (2.5s)
-        -check result:                             OK
-        -check output:                             OK
-        yield:                   (2.6s)
-        -check result:                             OK
-        -check output:                             OK
-        badarg:                  (2.6s)
-        -check result:                             OK
-        -check output:                             OK
-        exit:                    (2.5s)
-        -check result:                             OK
-        -check output:                             OK
-        spin:                    (5.4s)
-        -check result:                             OK
-        -check output:                             OK
-        waitkill:                (14.9s)
-        -check result:                             OK
-        -check output:                             OK
-        forktest:                (2.8s)
-        -check result:                             OK
-        -check output:                             OK
-        forktree:                (2.4s)
-        -check result:                             OK
-        -check output:                             OK
-        Total Score: 150/150
-        ```
 
 3. **回答问题**
     - 简要说明如何设计实现“Copy on Write 机制”，给出概要设计
@@ -298,32 +249,78 @@
         >                           |
         >                           |-- (exit) --> PROC_ZOMBIE
         >```
+6. **测试结果**
+    - 执行`make grade`，但发现在spin和waitkill用户进程出现WRONG，经过比对标准输出，发现我在时钟中断时仍然输出了`100 ticks`，但标准输出中已经没有该输出，去掉这一输出后再次测试，可见通过了全部测试：
+        ```c
+        badsegment:              (4.6s)
+        -check result:                             OK
+        -check output:                             OK
+        divzero:                 (2.7s)
+        -check result:                             OK
+        -check output:                             OK
+        softint:                 (2.5s)
+        -check result:                             OK
+        -check output:                             OK
+        faultread:               (2.7s)
+        -check result:                             OK
+        -check output:                             OK
+        faultreadkernel:         (3.2s)
+        -check result:                             OK
+        -check output:                             OK
+        hello:                   (2.8s)
+        -check result:                             OK
+        -check output:                             OK
+        testbss:                 (2.7s)
+        -check result:                             OK
+        -check output:                             OK
+        pgdir:                   (2.5s)
+        -check result:                             OK
+        -check output:                             OK
+        yield:                   (2.6s)
+        -check result:                             OK
+        -check output:                             OK
+        badarg:                  (2.6s)
+        -check result:                             OK
+        -check output:                             OK
+        exit:                    (2.5s)
+        -check result:                             OK
+        -check output:                             OK
+        spin:                    (5.4s)
+        -check result:                             OK
+        -check output:                             OK
+        waitkill:                (14.9s)
+        -check result:                             OK
+        -check output:                             OK
+        forktest:                (2.8s)
+        -check result:                             OK
+        -check output:                             OK
+        forktree:                (2.4s)
+        -check result:                             OK
+        -check output:                             OK
+        Total Score: 150/150
+        ```
 
 ## 2. 标准答案对比
 
+0. **练习0** ：
+    - 在`trap.c::trap_dispatch()`中，时钟中断时需设置当前进程为需要调度，这里答案用`assert(current != NULL)`确保当前进程存在，我没有加，已经根据答案修正
 1. **练习1** ：
-    - 在`alloc_proc()`中，答案在初始化`proc->name`时直接将memset目标大小写为`PROC_NAME_LEN`，这是预设了char类型大小为1 Byte，而且还有一个问题是事实上`proc->name`定义时大小为PROC_NAME_LEN + 1，多出的一位应该作为字符串结尾`\0`；我在实现时用`memset(proc->name, 0, sizeof(char) * (PROC_NAME_LEN + 1))`，不对char大小做预设，同时确保初始化大小与定义大小相同，字符串结尾被初始化为`\0`
+    - 在`load_icode()`中，在即将完成时需要重新设置trapframe，其中对%eflags的设置，答案直接用了`tf->tf_eflags = FL_IF;`，但我用了`tf->tf_eflags |= FL_IF;`，我认为答案这里实现有问题，会导致其他标志位被覆盖
 2. **练习2** ：
-    - 在`do_fork()`中，我在实现时完全没有考虑到同步问题，因此在获取pid并将PCB插入链表过程中并没有关闭中断；但事实上如前所述，`get_pid()`会操作全局变量，若过程中不屏蔽中断可能出现同步方面的问题，所以必须在开始执行前关闭中断；这里根据答案进行了修改
-    - 另外，我在实现时没有考虑到`proc->parent`需要在fork时进行指定，这里根据答案进行了修改，加入`proc->parent = current`操作
+    - 在`copy_range()`中，我将源/目的页的地址类型设为`uintptr_t src_kvaddr`，而答案设置为`void * kva_src`，这里两种方法没有实质区别
 
 ## 3. 实验知识点分析
 
-1. 进程和PCB：
-    - PCB的创建和初始化：在OS原理中对PCB的概念和功能有讲解，但实现中包含了更多细节
-    - PCB保存的信息：在OS原理中只是笼统提出了需要保存的信息类型，在实验中涉及实现细节，如context，tf等，均有其存在的必要性和在实现中的功能
-2. 进程创建：
-    - 第一个内核线程的创建：第一个内核线程事实上就是kernel初始化时的线程本身，只是在实现线程初始化时给自己分配了PCB，这在OS原理中没有讲到
-    - 基于fork的内核线程创建：基于fork实现，在OS原理中有讲解
-    - 唯一pid的获取：在OS原理中只说到pid唯一，但未提及其具体实现方法，在实验中有涉及
-3. 进程启动和切换：
-    - 新进程如何启动：类似在练习1问题回答中的分析，一个新线程依次通过context中指定的第一条语句，`forkrets`中跳转到异常返回`trapret`，最后借助`kernel_thread_entry()`通过trapframe中指定的进程入口函数及其参数正常开始执行，这在OS原理中没有涉及
-    - 进程切换：基于context的上下文切换实现进程切换，在OS原理中有对应内容
+1. 系统调用
+    - 系统调用的实现过程，包括从执行指令`int 0x80`到中断处理例程中一系列调用最终用合适的参数调用恰当的内核函数执行相应操作的过程，在OS原理中只描述了大致过程，但lab中涉及很详细的实现流程和一些编程技巧
+    - 对fork, exec, wait, exit等系统调用的具体实现，OS原理中只讲述了原理和大致过程，实验中涉及具体的实现方法
+2. 用户进程：
+    - 基于内核线程，通过创建mm实现对用户地址空间的管理：在原理中简单涉及了大致过程，但实验中涉及到详细的实现过程，包括在各个具体时间节点%cr3中的值、每个用户进程的页表中到底包含哪些内容等
+    - 加载用户程序：由于没有文件系统，因此直接使用elf加载用户程序，在OS原理中没有涉及
+3. 进程状态转换：
+    - 通过不同的系统调用，主动切换进程状态：在原理中有所涉及
+    - 通过时钟中断，进行进程切换：在原理中有涉及
 
 ## 4. 未对应知识点分析
 
-1. 五状态模型：实验中没有用到挂起状态
-2. 用户线程和轻权进程：ucore中线程通过核心线程实现，因此没有涉及到其他实现方法
-3. 进程加载：由于只实现了两个内核线程，因此没有涉及到这一部分内容
-4. 进程退出：当前直接调用了`kernel panic`，并没有实现进一步的清理工作
-5. 进程等待：由于只实现了两个内核线程，因此没有涉及到这一部分内容
+1. 进程优先级控制：原理中有提及，但实验中没有涉及到
