@@ -109,7 +109,7 @@ alloc_proc(void) {
      *       uint32_t wait_state;                        // waiting state
      *       struct proc_struct *cptr, *yptr, *optr;     // relations between processes
 	 */
-     //LAB6 YOUR CODE : (update LAB5 steps)
+     //LAB6 2015010062 : (update LAB5 steps)
     /*
      * below fields(add in LAB6) in proc_struct need to be initialized
      *     struct run_queue *rq;                       // running queue contains Process
@@ -134,6 +134,14 @@ alloc_proc(void) {
         proc->cptr = NULL;
         proc->yptr = NULL;
         proc->optr = NULL;
+        // NEW IN LAB 6
+        proc->rq = NULL;
+        list_init(proc->run_link);
+        proc->time_slice = 0;
+        // for stride
+        skew_heap_init(proc->lab6_run_pool);
+        proc->lab6_stride = 0;
+        proc->lab6_priority = 0;
 
         memset(&(proc->context), 0, sizeof(struct context));
         memset(proc->name, 0, sizeof(char) * (PROC_NAME_LEN + 1));
