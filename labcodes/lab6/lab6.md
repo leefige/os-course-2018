@@ -60,18 +60,18 @@ kernel panic at kern/process/proc.c:498:
 
 1. **与lab 5的diff**
     1. init/init.c
-        - 新增sched_init()用于进程调度的初始化
+        - 新增`sched_init()`用于进程调度的初始化
     2. process/proc.c
-        - alloc_proc()中对新增进程调度相关变量的初始化
-        - 新增lab6_set_priority()函数
+        - `alloc_proc()`中对新增进程调度相关变量的初始化
+        - 新增`lab6_set_priority()`函数
     3. schedule/
         - 新增default_sched.\[ch\], default_sched_stride_c
-        - sched.\[ch\]中新增调度框架相关函数，修改原有schedule()函数
+        - sched.\[ch\]中新增调度框架相关函数，修改原有`schedule()`函数
     4. syscall/syscall.c
-        - 新增sys_gettime()
-        - 新增sys_lab6_set_priority()
+        - 新增`sys_gettime()`
+        - 新增`sys_lab6_set_priority()`
     5. trap/trap.c
-        - trap_dispatch()中，处理时钟中断时调用进程调度类的时间感知
+        - `trap_dispatch()`中，处理时钟中断时调用进程调度类的时间感知
 
 2. **运行结果**
     - 直接执行`make grade`，会发现除了`priority`和`waitkill`外全部通过，但根据实验指导书中说法，`waitkill`不应该未通过。经过检查，可以发现`waitkill`由于多次调用`yield()`导致执行时间很长，但在`grade.sh`中，对`waitkill`的`timeout`仍为默认值，参考后续若干测试的`timeout`值将其置为500，并在本测试结束后重新将其恢复默认值，可以看到如下的结果，已经通过了除`priority`外所有测试：
@@ -145,13 +145,13 @@ kernel panic at kern/process/proc.c:498:
         >    - `void (*proc_tick)(struct run_queue *rq, struct proc_struct *proc)`：用于调度算法的时间感知，时钟中断时会调用该函数，进而对相应的进程的时间片进行操作
         > 2. RR算法调度过程：
         >    - 时钟中断，转入中断处理例程`trap()`，调用`trap_dispatch()`
-        >    - `trap_dispatch()`中判断出中断类型为时钟中断，`ticks`递增，若`ticks`达到TICK_NUM整数倍，则对当前进程current执行调度类框架的sched_class_proc_tick()，其中会判断当前进程是否为idle，若为idle则直接置其need_resched为1并返回，否则，对当前进程调用调度类的时间感知函数proc_tick()
-        >    - 在RR算法的proc_tick()中，会对当前进程的时间片time_slice递减，若时间片为0，则置其为需要被调度`proc->need_resched = 1`
-        >    - 逐层返回，直到回到trap()中，继续执行调度代码，若判断当前进程非内核线程，那么可以调度，先判断当前进程是否已经退出，即`current->flags & PF_EXITING`，若是则直接调用`do_exit()`退出；否则，检查当前进程是否需要被调度，即`current->need_resched`，若是，则调用调度函数schedule()进行进程调度
-        >    - 在schedule()中进程调度，需要保证不被打断，因此要屏蔽中断
-        >       - 首先将当前进程的need_resched重置，接着判断当前进程是否是就绪/运行态PROC_RUNNABLE，若是则将其加入就绪队列，这里调用了sched_class_enqueue()，其中RR的enqueue()将当前进程插入rq的run_list尾，并将其时间片置为合理值（若为0，说明上一次时间片完，则将时间片置为最大时间片）
-        >       - 然后调用sched_class_pick_next()挑选出下一个要运行的进程，RR的pick_next()直接返回run_list队首的进程；随后将这个挑选出来的进程从就绪队列拿出，调用sched_class_dequeue()，RR的dequeue()直接将该进程从链表中删除即可
-        >       - 最后调用proc_run()进行实际的进程切换，并恢复中断状态，返回
+        >    - `trap_dispatch()`中判断出中断类型为时钟中断，`ticks`递增，若`ticks`达到TICK_NUM整数倍，则对当前进程current执行调度类框架的`sched_class_proc_tick()`，其中会判断当前进程是否为idle，若为idle则直接置其`need_resched`为1并返回，否则，对当前进程调用调度类的时间感知函数`proc_tick()`
+        >    - 在RR算法的`proc_tick()`中，会对当前进程的时间片`time_slice`递减，若时间片为0，则置其为需要被调度`proc->need_resched = 1`
+        >    - 逐层返回，直到回到`trap()`中，继续执行调度代码，若判断当前进程非内核线程，那么可以调度，先判断当前进程是否已经退出，即`current->flags & PF_EXITING`，若是则直接调用`do_exit()`退出；否则，检查当前进程是否需要被调度，即`current->need_resched`，若是，则调用调度函数`schedule()`进行进程调度
+        >    - 在`schedule()`中进程调度，需要保证不被打断，因此要屏蔽中断
+        >       - 首先将当前进程的`need_resched`重置，接着判断当前进程是否是就绪/运行态`PROC_RUNNABLE`，若是则将其加入就绪队列，这里调用了`sched_class_enqueue()`，其中RR的`enqueue()`将当前进程插入rq的`run_list`尾，并将其时间片置为合理值（若为0，说明上一次时间片完，则将时间片置为最大时间片）
+        >       - 然后调用`sched_class_pick_next()`挑选出下一个要运行的进程，RR的`pick_next()`直接返回`run_list`队首的进程；随后将这个挑选出来的进程从就绪队列拿出，调用`sched_class_dequeue()`，RR的`dequeue()`直接将该进程从链表中删除即可
+        >       - 最后调用`proc_run()`进行实际的进程切换，并恢复中断状态，返回
     - 请简要说明如何设计实现”多级反馈队列调度算法“，给出概要设计，鼓励给出详细设计
         > - 首先需要若干个run_queue队列，每个有自己的优先级，各优先级有着自己的最大时间片，且高优先级时间片小，新进程第一次enqueue时在最高优先级
         > - 每次进程切换时，检查其是否是因为时间片用完而被抢占，若是，则其再次enqueue时进入低一级优先级的队列
