@@ -490,6 +490,7 @@ run_test -prog 'spin'  -check default_check                                     
         'init check memory pass.'                               \
     ! - 'user panic at .*'
 
+timeout=500
 run_test -prog 'waitkill'  -check default_check                                      \
         'kernel_execve: pid = 2, name = "waitkill".'            \
         'wait child 1.'                                         \
@@ -500,7 +501,7 @@ run_test -prog 'waitkill'  -check default_check                                 
         'all user-mode processes have quit.'                    \
         'init check memory pass.'                               \
     ! - 'user panic at .*'
-
+timeout=$default_timeout
 pts=15
 
 run_test -prog 'forktest'   -check default_check                                     \

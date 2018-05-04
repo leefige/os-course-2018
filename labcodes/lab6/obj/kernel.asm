@@ -21195,7 +21195,7 @@ c010a2f9:	68 9a db 10 c0       	push   $0xc010db9a
 c010a2fe:	e8 87 ff ff ff       	call   c010a28a <kernel_execve>
 c010a303:	83 c4 10             	add    $0x10,%esp
 #else
-    KERNEL_EXECVE(exit);
+    KERNEL_EXECVE(waitkill);
 #endif
     panic("user_main execve failed.\n");
 c010a306:	83 ec 04             	sub    $0x4,%esp

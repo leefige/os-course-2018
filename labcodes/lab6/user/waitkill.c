@@ -4,11 +4,17 @@
 void
 do_yield(void) {
     yield();
+    // cprintf("yield() * 1\n");    
     yield();
+    // cprintf("yield() * 2\n");
     yield();
+    // cprintf("yield() * 3\n");
     yield();
+    // cprintf("yield() * 4\n");
     yield();
+    // cprintf("yield() * 5\n");
     yield();
+    // cprintf("end of do_yield()\n");
 }
 
 int parent, pid1, pid2;
