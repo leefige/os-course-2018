@@ -64,7 +64,6 @@ _fifo_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int
     //(1)link the most recent arrival page at the back of the pra_list_head qeueue.
     list_add_before(head, entry);
     return 0;
-    return 0;
 }
 /*
  *  (4)_fifo_swap_out_victim: According FIFO PRA, we should unlink the  earliest arrival page in front of pra_list_head qeueue,

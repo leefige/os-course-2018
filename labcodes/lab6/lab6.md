@@ -37,140 +37,125 @@
 
 #### 迁移结果
 
-在完成上述的迁移和代码更新后直接执行`make grade`，会发现除了`priority`和`waitkill`外全部通过，但根据实验指导书中说法，`waitkill`不应该未通过。经过检查，可以发现`waitkill`由于多次调用`yield()`导致执行时间很长，但在`grade.sh`中，对`waitkill`的`timeout`仍为默认值，参考后续若干测试的`timeout`值将其置为500，并在本测试结束后重新将其恢复默认值，可以看到如下的结果，已经通过了除`priority`外所有测试：
+在完成上述的迁移和代码更新后，运行`make qemu`有如下结果，可见可以正常运行：
 
-    ```gdb
-    badsegment:              (3.2s)
-    -check result:                             OK
-    -check output:                             OK
-    divzero:                 (2.2s)
-    -check result:                             OK
-    -check output:                             OK
-    softint:                 (2.1s)
-    -check result:                             OK
-    -check output:                             OK
-    faultread:               (2.2s)
-    -check result:                             OK
-    -check output:                             OK
-    faultreadkernel:         (2.1s)
-    -check result:                             OK
-    -check output:                             OK
-    hello:                   (2.2s)
-    -check result:                             OK
-    -check output:                             OK
-    testbss:                 (2.2s)
-    -check result:                             OK
-    -check output:                             OK
-    pgdir:                   (2.2s)
-    -check result:                             OK
-    -check output:                             OK
-    yield:                   (2.7s)
-    -check result:                             OK
-    -check output:                             OK
-    badarg:                  (2.6s)
-    -check result:                             OK
-    -check output:                             OK
-    exit:                    (2.4s)
-    -check result:                             OK
-    -check output:                             OK
-    spin:                    (17.1s)
-    -check result:                             OK
-    -check output:                             OK
-    waitkill:                (67.1s)
-    -check result:                             OK
-    -check output:                             OK
-    forktest:                (2.3s)
-    -check result:                             OK
-    -check output:                             OK
-    forktree:                (2.7s)
-    -check result:                             OK
-    -check output:                             OK
-    matrix:                  (16.2s)
-    -check result:                             OK
-    -check output:                             OK
-    priority:                (12.3s)
-    -check result:                             WRONG
-    -e !! error: missing 'sched class: stride_scheduler'
-    !! error: missing 'stride sched correct result: 1 2 3 4 5'
-
-    -check output:                             OK
-    Total Score: 163/170
-    Makefile:314: recipe for target 'grade' failed
-    make: *** [grade] Error 1
-    ```
+```gdb
+...
+++ setup timer interrupts
+kernel_execve: pid = 2, name = "exit".
+I am the parent. Forking the child...
+I am parent, fork a child pid 3
+I am the parent, waiting now..
+I am the child.
+waitpid 3 ok.
+exit pass.
+all user-mode processes have quit.
+init check memory pass.
+kernel panic at kern/process/proc.c:498:
+    initproc exit.
+...
+```
 
 ### 练习6.1 使用 Round Robin 调度算法
 
-1. **原理简述**
-    1. lab 4中，第二个内核线程仅仅实现了输出"Hello world"的功能，而在本实验中，这一进程被用来创建用户进程，方法是调用`kernel_thread(user_main, NULL, 0)`以`user_main()`作为用户进程的主函数
-    2. 在本实验中，由于还未实现文件系统，因此加载应用程序只能将全部应用程序都编译并写入内存，加载时根据其elf信息再将目标程序拷贝至用户程序的目标内存位置，这里使用了一个tricky的方法，即在`user_main()`中调用定义好的宏`KERNEL_EXECVE2(TEST, TESTSTART, TESTSIZE)`来加载目标应用程序`TEST`，在一系列调用后会执行`kernel_execve(const char *name, unsigned char *binary, size_t size)`函数，其中调用了`SYS_exec`的系统调用，实现了对应用程序的加载
-    3. `SYS_exec`系统调用对应的处理例程为`do_execve()`，其流程如下：
-        1. 检测当前进程已有的`mm`
-        2. 对旧`mm`的清理，包括清理映射关系、释放页表、`mm`销毁
-        3. 调用`load_icode()`读取应用程序的二进制文件到内存中的适当位置
-        4. 给进程重命名为指定的进程名，并返回；由于这里是系统调用，故返回会进一步触发中断返回，这会让进程从trapframe中重新加载%eip等寄存器，并从新加载的应用程序的入口开始执行
-    4. 本练习中主要需要补充的部分在`load_icode()`中，`load_icode()`包括以下流程：
-        1. 新建`mm`，新建页目录表，注意，在新建页目录表时，已经将内核页目录表即`boot_pgdir`拷贝到新页目录表中（当然也重建了页表自映射），并将`mm`的`pgdir`成员设置为该新建的页目录表
-        2. 读取指定的elf文件，并对各代码段依次建立vma，分配物理页，并拷贝至目标物理内存
-        3. 对应用程序的bss段进行初始化
-        4. 建立用户栈空间，即建立USERSTACK在`mm`中的映射
-        5. 将上面建立的`mm`赋值给当前进程，同时重新加载%cr3为当前进程的页目录表
-        6. 建立用户进程的trapframe，这是本练习需要完成的部分，其目的是设置用户进程转入执行时需要拥有的状态，如各段寄存器值、栈顶位置、中断状态，尤其是%eip需要设置为应用程序elf文件中指定的入口`elf->e_entry`
-        7. 加载完毕，返回
+1. **与lab 5的diff**
+    1. init/init.c
+        - 新增sched_init()用于进程调度的初始化
+    2. process/proc.c
+        - alloc_proc()中对新增进程调度相关变量的初始化
+        - 新增lab6_set_priority()函数
+    3. schedule/
+        - 新增default_sched.\[ch\], default_sched_stride_c
+        - sched.\[ch\]中新增调度框架相关函数，修改原有schedule()函数
+    4. syscall/syscall.c
+        - 新增sys_gettime()
+        - 新增sys_lab6_set_priority()
+    5. trap/trap.c
+        - trap_dispatch()中，处理时钟中断时调用进程调度类的时间感知
 
-2. **实现方法**
-    - 主要需要实现对用户进程trapframe的初始化，将段寄存器设置为用户值，将%esp设置为用户栈顶，将%eip设置为应用程序入口，并开启用户进程的中断，实现方法如下：
-        ```c
-        tf->tf_cs = USER_CS;
-        tf->tf_ds = USER_DS;
-        tf->tf_es = USER_DS;
-        tf->tf_ss = USER_DS;
-        tf->tf_esp = USTACKTOP;
-        tf->tf_eip = elf->e_entry;
-        tf->tf_eflags |= FL_IF;     // enable intr
-        ```
-    - 完成后，运行`make qemu`可以看到如下结果，可见已经成功在用户进程中加载了目标代码（`exit`），并且父进程代码执行顺利，直到父进程进入等待状态转而执行子进程时，触发了无法处理的Page Fault，这是由于父进程利用系统调用fork产生子进程的代码尚未补完，这涉及到练习2相关内容：
+2. **运行结果**
+    - 直接执行`make grade`，会发现除了`priority`和`waitkill`外全部通过，但根据实验指导书中说法，`waitkill`不应该未通过。经过检查，可以发现`waitkill`由于多次调用`yield()`导致执行时间很长，但在`grade.sh`中，对`waitkill`的`timeout`仍为默认值，参考后续若干测试的`timeout`值将其置为500，并在本测试结束后重新将其恢复默认值，可以看到如下的结果，已经通过了除`priority`外所有测试：
         ```gdb
-            ...
-            ++ setup timer interrupts
-            kernel_execve: pid = 2, name = "exit".
-            I am the parent. Forking the child...
-            I am parent, fork a child pid 3
-            I am the parent, waiting now..
-            not valid addr 0, and  can not find it in vma
-            trapframe at 0xc039cfb4
-            edi  0x00000000
-            esi  0xafffffa8
-            ebp  0xafffff6c
-            oesp 0xc039cfd4
-            ebx  0x00801320
-            edx  0xafffff88
-            ecx  0x008001c3
-            eax  0x00000000
-            ds   0x----0023
-            es   0x----0023
-            fs   0x----0000
-            gs   0x----0000
-            trap 0x0000000e Page Fault
-            err  0x00000004
-            eip  0x008000fd
-            cs   0x----001b
-            flag 0x00000202 IF,IOPL=0
-            esp  0xafffff40
-            ss   0x----0023
-            killed by kernel.
-            kernel panic at kern/trap/trap.c:218:
-                handle user mode pgfault failed. ret=-3
+        badsegment:              (3.2s)
+        -check result:                             OK
+        -check output:                             OK
+        divzero:                 (2.2s)
+        -check result:                             OK
+        -check output:                             OK
+        softint:                 (2.1s)
+        -check result:                             OK
+        -check output:                             OK
+        faultread:               (2.2s)
+        -check result:                             OK
+        -check output:                             OK
+        faultreadkernel:         (2.1s)
+        -check result:                             OK
+        -check output:                             OK
+        hello:                   (2.2s)
+        -check result:                             OK
+        -check output:                             OK
+        testbss:                 (2.2s)
+        -check result:                             OK
+        -check output:                             OK
+        pgdir:                   (2.2s)
+        -check result:                             OK
+        -check output:                             OK
+        yield:                   (2.7s)
+        -check result:                             OK
+        -check output:                             OK
+        badarg:                  (2.6s)
+        -check result:                             OK
+        -check output:                             OK
+        exit:                    (2.4s)
+        -check result:                             OK
+        -check output:                             OK
+        spin:                    (17.1s)
+        -check result:                             OK
+        -check output:                             OK
+        waitkill:                (67.1s)
+        -check result:                             OK
+        -check output:                             OK
+        forktest:                (2.3s)
+        -check result:                             OK
+        -check output:                             OK
+        forktree:                (2.7s)
+        -check result:                             OK
+        -check output:                             OK
+        matrix:                  (16.2s)
+        -check result:                             OK
+        -check output:                             OK
+        priority:                (12.3s)
+        -check result:                             WRONG
+        -e !! error: missing 'sched class: stride_scheduler'
+        !! error: missing 'stride sched correct result: 1 2 3 4 5'
+
+        -check output:                             OK
+        Total Score: 163/170
+        Makefile:314: recipe for target 'grade' failed
+        make: *** [grade] Error 1
         ```
 
 3. **回答问题**
-    - 请理解并分析sched_calss中各个函数指针的用法，并结合Round Robin 调度算法描ucore的调度执行过程
-        > 1. 假设该进程是被刚刚创建出来的新进程，那么在该用户态进程被ucore选择占用CPU执行（进入RUNNING态）后，首先通过切换context从其context中恢复出%eip的值，这个值是在`copy_thread()`中设置好的`proc->context.eip = (uintptr_t)forkret`
-        > 2. `forkret()`中调用`forkrets()`，进而通过`__trapret()`利用trapframe中断返回
-        > 3. 若该进程由用户进程fork得来，那么trapframe中%eip值为父进程执行到fork语句的下一条指令，子进程fork后拥有和父进程相同的代码和数据，因此继续从该条指令向下执行父进程代码，直到遇到exec系统调用则加载新应用程序
-        > 4. 但是，若该进程由内核线程创建，例如ucore创建第一个用户进程时，则略有不同，这种情况下使用`kernel_thread`创建进程，这一过程中对trapframe进行了一些人为设置，最重要的是将其`tf_eip`设置为`tf.tf_eip = (uint32_t)kernel_thread_entry`，这样，在`__trapret()`利用trapframe中断返回后会先执行`kernel_thread_entry()`，这个函数会进一步调用在trapframe中设置好的参数（用户进程主函数及其参数），如ucore创建的第一个用户进程主函数为`user_main()`，在这一函数中又通过exec系统调用加载真正要执行的用户程序
-        > 5. exec系统调用由服务例程`do_execve()`处理，它的执行过程在上面的 **原理简述** 中已有详细说明，而它是通过在内部调用`load_icode()`时更改当前进程的trapframe中的tf_eip：`tf->tf_eip = elf->e_entry`，将elf文件给出的入口entry指定为应用程序的入口，进而在系统调用处理完毕、利用trapframe中断返回时，会将这一入口恢复到%eip中，这样%eip就指向了应用程序的第一条指令，并且从这里开始执行
+    - 请理解并分析sched_calss中各个函数指针的用法，并结合Round Robin 调度算法描述ucore的调度执行过程
+        > 1. 各函数指针的用法：
+        >    - `void (*init)(struct run_queue *rq)`：用于该调度类的初始化，包括对timer_list的初始化、rq中`max_time_slice`的初始化以及选择需要的调度类实例，并进一步调用调度类实例的`init()`进行其自己的初始化
+        >    - `void (*enqueue)(struct run_queue *rq, struct proc_struct *proc)`：用于将一个PCB加入就绪队列rq中
+        >    - `void (*dequeue)(struct run_queue *rq, struct proc_struct *proc)`：用于从就绪队列rq中将某个PCB取出
+        >    - `struct proc_struct *(*pick_next)(struct run_queue *rq)`：用于从就绪队列中挑选一个就绪的进程用作下一个被切换到的进程
+        >    - `void (*proc_tick)(struct run_queue *rq, struct proc_struct *proc)`：用于调度算法的时间感知，时钟中断时会调用该函数，进而对相应的进程的时间片进行操作
+        > 2. RR算法调度过程：
+        >    - 时钟中断，转入中断处理例程`trap()`，调用`trap_dispatch()`
+        >    - `trap_dispatch()`中判断出中断类型为时钟中断，`ticks`递增，若`ticks`达到TICK_NUM整数倍，则对当前进程current执行调度类框架的sched_class_proc_tick()，其中会判断当前进程是否为idle，若为idle则直接置其need_resched为1并返回，否则，对当前进程调用调度类的时间感知函数proc_tick()
+        >    - 在RR算法的proc_tick()中，会对当前进程的时间片time_slice递减，若时间片为0，则置其为需要被调度`proc->need_resched = 1`
+        >    - 逐层返回，直到回到trap()中，继续执行调度代码，若判断当前进程非内核线程，那么可以调度，先判断当前进程是否已经退出，即`current->flags & PF_EXITING`，若是则直接调用`do_exit()`退出；否则，检查当前进程是否需要被调度，即`current->need_resched`，若是，则调用调度函数schedule()进行进程调度
+        >    - 在schedule()中进程调度，需要保证不被打断，因此要屏蔽中断
+        >       - 首先将当前进程的need_resched重置，接着判断当前进程是否是就绪/运行态PROC_RUNNABLE，若是则将其加入就绪队列，这里调用了sched_class_enqueue()，其中RR的enqueue()将当前进程插入rq的run_list尾，并将其时间片置为合理值（若为0，说明上一次时间片完，则将时间片置为最大时间片）
+        >       - 然后调用sched_class_pick_next()挑选出下一个要运行的进程，RR的pick_next()直接返回run_list队首的进程；随后将这个挑选出来的进程从就绪队列拿出，调用sched_class_dequeue()，RR的dequeue()直接将该进程从链表中删除即可
+        >       - 最后调用proc_run()进行实际的进程切换，并恢复中断状态，返回
     - 请简要说明如何设计实现”多级反馈队列调度算法“，给出概要设计，鼓励给出详细设计
+        > - 首先需要若干个run_queue队列，每个有自己的优先级，各优先级有着自己的最大时间片，且高优先级时间片小，新进程第一次enqueue时在最高优先级
+        > - 每次进程切换时，检查其是否是因为时间片用完而被抢占，若是，则其再次enqueue时进入低一级优先级的队列
+        > - pick_next时，在队列内可以使用先来先服务方式顺序进行；在队列间，可以使用固定优先级方式，即先处理高优先级的队列，再处理低优先级的队列（由于高优先级队列中多为交互密集型进程，它们大多时候在sleep等待交互事件，因此大多数情况下也不会导致饥饿发生）
 
 ### 练习6.2 实现 Stride Scheduling 调度算法
 
