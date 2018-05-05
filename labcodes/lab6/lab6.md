@@ -24,7 +24,7 @@
         ```
         【注意】此处实现其实是有问题的，修改方法请参考下文“练习6.1”部分
 2. proc.c
-    - 在`alloc_proc()`中，需要对新增的若干变量进行初始化如下：
+    - 在`alloc_proc()`中，需要对新增的若干变量进行初始化如下. 【注意】priority根据stride调度算法的需求，应该初始化为1：
         ```c
         // NEW IN LAB 6
         proc->rq = NULL;
@@ -33,7 +33,7 @@
         // for stride
         skew_heap_init(&(proc->lab6_run_pool));
         proc->lab6_stride = 0;
-        proc->lab6_priority = 0;
+        proc->lab6_priority = 1;
         ```
 
 #### 迁移结果
@@ -172,37 +172,124 @@ kernel panic at kern/process/proc.c:498:
 ### 练习6.2 实现 Stride Scheduling 调度算法
 
 1. **原理简述**
-    1. Stride Scheduling调度算法的基本想法是，类比人走路的样子，有的人步伐(pass)小，有的人步伐大，那么一起行走时，步伐大的人就应该走走停停，多等一等步伐小的人，相应的，步伐小的人就应该多走而少等待。在该算法里，优先级与步伐pass相对应，优先级高的pass小，那么它就有更多执行的机会，而pass大的就应该多等待pass小的进程
-    2. 
+    1. Stride Scheduling调度算法的基本想法是类比人走路的样子：
+        - 有的人步伐(pass)小，有的人步伐大，那么一起行走时，步伐大的人就应该走走停停，多等一等步伐小的人，相应的，步伐小的人就应该多走而少等待
+        - 在该算法里，优先级与步伐pass相对应，优先级高的pass小，那么它就有更多执行的机会，而pass大的就应该多等待pass小的进程
+        - 另外还有一个标志“路程”的量，就是stride，进程每次执行都会给其stride累加pass
+        - 那么每次挑选就绪进程让其占用CPU运行时，就应该挑选stride最小的进程执行
+    2. 每个进程都有自己的优先级priority，而pass根据priority产生。首先需要定义一个常量`BIG_STRIDE`，pass的计算公式就是`BIG_STRIDE / priority`
+    3. 在实现层面上，还有两个问题需要考虑：
+        1. 效率问题：若每次pick_next时需要遍历列表寻找stride最小的进程，则开销很大，为O(n)量级。因此可以使用优先级队列`skew_heap`实现，那么每次enqueue/dequeue时会有O(log n)的开销，而每次pick_next时直接取出队首元素即可
+        2. 溢出问题：stride在不断累加过程中一定存在溢出问题。但是好消息时，我们在比较时取两者差值，stride本身为无符号数，而比较函数中对二者差值的计算结果取为有符号数（事实上unsigned和signed计算方法一样，字节中位表示也相同），那么就可以做到即使较大的stride溢出（无符号数）变为“较小”值，其减去本来较小的stride时的差值（有符号数）有可能仍为正数——当然，这要求二者的差值在一定范围内而不能溢出。那么只需要控制差值大小为int32可以表示的范围即可，也即0x7fffffff. 同时可以证明，`STRIDE_MAX – STRIDE_MIN <= BIG_STRIDE`，那么我们需要做的就是控制`BIG_STRIDE`的范围不超过0x7fffffff
 
 2. **实现方法**
-    - 练习中需要编码实现的部分其实不多，主要是获取当前进程页表地址和子进程新建页表的地址，随后调用`memcpy()`复制页表内容，最后将新建的页表插入子进程的页目录表即可，实现代码如下：
+    1. 定义`BIG_STRIDE`：根据上述原理，可以将其定义为0x7fffffff：
         ```c
-        // (1) find src_kvaddr: the kernel virtual address of page
-        uintptr_t src_kvaddr = page2kva(page);
-        // (2) find dst_kvaddr: the kernel virtual address of npage
-        uintptr_t dst_kvaddr = page2kva(npage);
-        // (3) memory copy from src_kvaddr to dst_kvaddr, size is PGSIZE
-        memcpy(dst_kvaddr, src_kvaddr, PGSIZE);
-        // (4) build the map of phy addr of  nage with the linear addr start
-        ret = page_insert(to, npage, start, perm);
-        assert(ret == 0);
+        #define BIG_STRIDE 0x7fffffff    /* you should give a value, and is 2^31 - 1 */
         ```
-    - 在进行上述全部修改后，执行`make qemu`却遇到`nr_process`的assertion failure，经过检查是因为我在迁移并更新过去代码时，在`do_fork()`中虽然改用了`set_links()`并注释掉了`list_add()`，但没有取消原有的`nr_process++`导致重复了对`nr_process`的操作；修正后，运行`make qemu`可以看到如下结果，可见已经顺利地执行完毕`exit`用户进程，并且通过所有检测，最终init_proc退出，运行结束：
+    2. init：对run_queue做初始化，包括对run_list的初始化、置proc_num为0，以及将优先级队列队首置为NULL（表示空队列）：
+        ```c
+        // (1) init the ready process list: rq->run_list
+        list_init(&(rq->run_list));
+        // (2) init the run pool: rq->lab6_run_pool
+        rq->lab6_run_pool = NULL;
+        //(3) set number of process: rq->proc_num to 0 
+        rq->proc_num = 0;
+        ```
+    3. enqueue：主要是调用skew_heap_insert将PCB加入优先级队列，其余操作与RR相同，包括对时间片的操作等：
+        ```c
+        // (1) insert the proc into rq correctly
+        rq->lab6_run_pool = skew_heap_insert(rq->lab6_run_pool, &(proc->lab6_run_pool), (compare_f)proc_stride_comp_f);
+        // (2) recalculate proc->time_slice
+        if (proc->time_slice == 0 || proc->time_slice > rq->max_time_slice) {
+            proc->time_slice = rq->max_time_slice;
+        }
+        // (3) set proc->rq pointer to rq
+        proc->rq = rq;
+        // (4) increase rq->proc_num
+        rq->proc_num ++;
+        ```
+    4. dequeue：调用skew_heap_remove将PCB移出优先级队列，同时将proc_num减一：
+        ```c
+        // (1) remove the proc from rq correctly
+        rq->lab6_run_pool = skew_heap_remove(rq->lab6_run_pool, &(proc->lab6_run_pool), (compare_f)proc_stride_comp_f);
+        rq->proc_num --;
+        ```
+    5. pick_next：若当前队列为空，即队首为NULL，则直接返回NULL（进而执行idle）；否则返回优先级队列队首的PCB，同时增加其stride值，增量为`pass = BIG_STRIDE / proc->lab6_priority`：
+        ```c
+        // (1) get a  proc_struct pointer p  with the minimum value of stride
+        if (rq->lab6_run_pool == NULL) {
+            return NULL;
+        }
+        struct proc_struct * proc = le2proc(rq->lab6_run_pool, lab6_run_pool);
+        // (2) update p's stride value: p->lab6_stride
+        proc->lab6_stride += BIG_STRIDE / proc->lab6_priority;
+        // (3) return p
+        return proc;
+        ```
+    6. proc_tick：与RR相同，针对时间片进行递减和判零：
+        ```c
+        if (proc->time_slice > 0) {
+        proc->time_slice --;
+        }
+        if (proc->time_slice == 0) {
+            proc->need_resched = 1;
+        }
+        ```
+    7. 在进行上述全部修改后，执行`make grade`可以看到通过了全部测试（注意，有时`make grade`时可能会出现priority无法通过的情况，此时可以通过`make run-priority`查看结果；或者尝试重复运行`make grade`）：
         ```gdb
-            ...
-            ++ setup timer interrupts
-            kernel_execve: pid = 2, name = "exit".
-            I am the parent. Forking the child...
-            I am parent, fork a child pid 3
-            I am the parent, waiting now..
-            I am the child.
-            waitpid 3 ok.
-            exit pass.
-            all user-mode processes have quit.
-            init check memory pass.
-            kernel panic at kern/process/proc.c:480:
-                initproc exit.
+        badsegment:              (2.9s)
+        -check result:                             OK
+        -check output:                             OK
+        divzero:                 (2.3s)
+        -check result:                             OK
+        -check output:                             OK
+        softint:                 (2.6s)
+        -check result:                             OK
+        -check output:                             OK
+        faultread:               (2.7s)
+        -check result:                             OK
+        -check output:                             OK
+        faultreadkernel:         (2.2s)
+        -check result:                             OK
+        -check output:                             OK
+        hello:                   (2.4s)
+        -check result:                             OK
+        -check output:                             OK
+        testbss:                 (2.7s)
+        -check result:                             OK
+        -check output:                             OK
+        pgdir:                   (2.9s)
+        -check result:                             OK
+        -check output:                             OK
+        yield:                   (2.7s)
+        -check result:                             OK
+        -check output:                             OK
+        badarg:                  (3.0s)
+        -check result:                             OK
+        -check output:                             OK
+        exit:                    (2.6s)
+        -check result:                             OK
+        -check output:                             OK
+        spin:                    (2.7s)
+        -check result:                             OK
+        -check output:                             OK
+        waitkill:                (3.2s)
+        -check result:                             OK
+        -check output:                             OK
+        forktest:                (2.1s)
+        -check result:                             OK
+        -check output:                             OK
+        forktree:                (2.6s)
+        -check result:                             OK
+        -check output:                             OK
+        matrix:                  (26.5s)
+        -check result:                             OK
+        -check output:                             OK
+        priority:                (13.3s)
+        -check result:                             OK
+        -check output:                             OK
+        Total Score: 170/170
         ```
 
 3. **回答问题**
