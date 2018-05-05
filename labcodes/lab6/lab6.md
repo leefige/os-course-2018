@@ -187,7 +187,7 @@ kernel panic at kern/process/proc.c:498:
         ```c
         #define BIG_STRIDE 0x7fffffff    /* you should give a value, and is 2^31 - 1 */
         ```
-    2. init：对run_queue做初始化，包括对run_list的初始化、置proc_num为0，以及将优先级队列队首置为NULL（表示空队列）：
+    2. init：对run_queue做初始化，包括对`run_list`的初始化、置`proc_num`为0，以及将优先级队列队首置为`NULL`（表示空队列）：
         ```c
         // (1) init the ready process list: rq->run_list
         list_init(&(rq->run_list));
@@ -196,7 +196,7 @@ kernel panic at kern/process/proc.c:498:
         //(3) set number of process: rq->proc_num to 0 
         rq->proc_num = 0;
         ```
-    3. enqueue：主要是调用skew_heap_insert将PCB加入优先级队列，其余操作与RR相同，包括对时间片的操作等：
+    3. enqueue：主要是调用`skew_heap_insert`将PCB加入优先级队列，其余操作与RR相同，包括对时间片的操作等：
         ```c
         // (1) insert the proc into rq correctly
         rq->lab6_run_pool = skew_heap_insert(rq->lab6_run_pool, &(proc->lab6_run_pool), (compare_f)proc_stride_comp_f);
@@ -209,13 +209,13 @@ kernel panic at kern/process/proc.c:498:
         // (4) increase rq->proc_num
         rq->proc_num ++;
         ```
-    4. dequeue：调用skew_heap_remove将PCB移出优先级队列，同时将proc_num减一：
+    4. dequeue：调用`skew_heap_remove`将PCB移出优先级队列，同时将`proc_num`减一：
         ```c
         // (1) remove the proc from rq correctly
         rq->lab6_run_pool = skew_heap_remove(rq->lab6_run_pool, &(proc->lab6_run_pool), (compare_f)proc_stride_comp_f);
         rq->proc_num --;
         ```
-    5. pick_next：若当前队列为空，即队首为NULL，则直接返回NULL（进而执行idle）；否则返回优先级队列队首的PCB，同时增加其stride值，增量为`pass = BIG_STRIDE / proc->lab6_priority`：
+    5. pick_next：若当前队列为空，即队首为`NULL`，则直接返回`NULL`（进而执行idle）；否则返回优先级队列队首的PCB，同时增加其stride值，增量为`pass = BIG_STRIDE / proc->lab6_priority`：
         ```c
         // (1) get a  proc_struct pointer p  with the minimum value of stride
         if (rq->lab6_run_pool == NULL) {
@@ -292,32 +292,27 @@ kernel panic at kern/process/proc.c:498:
         Total Score: 170/170
         ```
 
-3. **回答问题**
-    - 简要说明如何设计实现“Copy on Write 机制”，给出概要设计
-        > - 基本思路是，fork出子进程时仅复制一份页目录表，但对用户空间里所有虚拟地址空间对应的页表并不实际拷贝内存，而是仅仅通过指针，让子进程的页目录表项指向父进程的页表（即共享方式）
-        > - 但是，为了防止父进程和子进程由于后续执行的分歧而对页表进行冲突修改，需要设置父进程的用户空间页表权限均为只读，而其原有的读写权限则冗余保存在`mm`中对应的`vma`里
-        > - 当两个进程都以只读方式访问页表时，不会触发任何问题，都可以正常访问；但当任何一个进程试图写某一页表项对应的页时，由于页表均被设为只读，故会触发PAGE FAULT，并进入PAGE FAULT处理例程
-        > - 在PAGE FAULT处理中需要根据错误码判断出错类型，若错误类型为“写只读页”，这时检查`vma`中备份的实际R/W类型，若该页实际为可写的，那么说明该页是由于COW而被设为共享的页，那么，为子进程拷贝该页表项所在的页表并将子进程页目录表中对应页目录表项指向该新建的页表，同时为子进程拷贝父进程的被访问页，将子进程的对应页表项指向该页，并将父进程和子进程的这条页表项读写权限恢复正常，结束处理，中断返回
-
 ## 2. 标准答案对比
 
 - **练习0** ：
-    - 在`trap.c::trap_dispatch()`中，时钟中断时需设置当前进程为需要调度，这里答案用`assert(current != NULL)`确保当前进程存在，我没有加，已经根据答案修正
+    - 在`proc.c::alloc_proc()`中，答案对`lab6_priority`初始化为0，这导致其在实现stride算法时还需要对priority为0的情况进行特判。但事实上，根据stride算法的原理，priority的初值直接置为1更合理，我是按照这种方法实现的
+    - 此外，对于`lab6_run_pool`的初始化，答案直接操作了其成员变量，我则调用了`skew_heap_init()`进行初始化
 - **练习2** ：
-    - 在`copy_range()`中，我将源/目的页的地址类型设为`uintptr_t src_kvaddr`，而答案设置为`void * kva_src`，这里两种方法没有实质区别
+    - 首先一个不同之处是，答案还实现了使用list的方式，但我只实现了优先级队列
+    - 如前所述，答案由于对priority初始化为0，因此需要在pick_next时计算pass过程中对priority是否为0进行特判；但我因为初始化为1，因此不需要这一步
 
 ## 3. 实验知识点分析
 
-1. 系统调用
-    - 系统调用的实现过程，包括从执行指令`int 0x80`到中断处理例程中一系列调用最终用合适的参数调用恰当的内核函数执行相应操作的过程，在OS原理中只描述了大致过程，但lab中涉及很详细的实现流程和一些编程技巧
-    - 对fork, exec, wait, exit等系统调用的具体实现，OS原理中只讲述了原理和大致过程，实验中涉及具体的实现方法
-2. 用户进程：
-    - 基于内核线程，通过创建mm实现对用户地址空间的管理：在原理中简单涉及了大致过程，但实验中涉及到详细的实现过程，包括在各个具体时间节点%cr3中的值、每个用户进程的页表中到底包含哪些内容等
-    - 加载用户程序：由于没有文件系统，因此直接使用elf加载用户程序，在OS原理中没有涉及
-3. 进程状态转换：
-    - 通过不同的系统调用，主动切换进程状态：在原理中有所涉及
-    - 通过时钟中断，进行进程切换：在原理中有涉及
+1. 调度框架
+    - 使用类似面向对象的编程方法实现了与实现无关的调度框架，其基本操作类型与OS原理中所讲述的类似，但具体实现技巧在OS原理中没有涉及
+2. RR调度算法
+    - 原理在OS原理课中有所讲述
+3. Stride调度算法
+    - 基本思想在OS原理课中有所讲授
+    - 具体实现上，通过论文和实验指导书进行指导，在原理课上没有过多展开
 
 ## 4. 未对应知识点分析
 
-1. 进程优先级控制：原理中有提及，但实验中没有涉及到
+1. 实时调度
+2. 多处理器调度
+3. 优先级反置问题
