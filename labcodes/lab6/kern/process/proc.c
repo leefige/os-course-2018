@@ -141,7 +141,7 @@ alloc_proc(void) {
         // for stride
         skew_heap_init(&(proc->lab6_run_pool));
         proc->lab6_stride = 0;
-        proc->lab6_priority = 0;
+        proc->lab6_priority = 1;
 
         memset(&(proc->context), 0, sizeof(struct context));
         memset(proc->name, 0, sizeof(char) * (PROC_NAME_LEN + 1));
