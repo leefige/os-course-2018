@@ -22,6 +22,7 @@
             sched_class_proc_tick(current);
         }
         ```
+        【注意】此处实现其实是有问题的，修改方法请参考下文“练习6.1”部分
 2. proc.c
     - 在`alloc_proc()`中，需要对新增的若干变量进行初始化如下：
         ```c
@@ -74,57 +75,68 @@ kernel panic at kern/process/proc.c:498:
         - `trap_dispatch()`中，处理时钟中断时调用进程调度类的时间感知
 
 2. **运行结果**
-    - 直接执行`make grade`，会发现除了`priority`和`waitkill`外全部通过，但根据实验指导书中说法，`waitkill`不应该未通过。经过检查，可以发现`waitkill`由于多次调用`yield()`导致执行时间很长，但在`grade.sh`中，对`waitkill`的`timeout`仍为默认值，参考后续若干测试的`timeout`值将其置为500，并在本测试结束后重新将其恢复默认值，可以看到如下的结果，已经通过了除`priority`外所有测试：
+    - 直接执行`make grade`，会发现除了`priority`和`waitkill`外全部通过，但根据实验指导书中说法，`waitkill`不应该未通过。经过检查，可以发现`waitkill`由于多次调用`yield()`导致执行时间很长，超过了测试脚本的`timeout`限制
+    - 考虑其原因，应该是由于每个时间片过长，而这是因为在`trap.c::trap_dispatch()`中，对时钟中断的处理方法有问题。我沿用了之前输出“100 ticks”时，判断`ticks`为100整数倍才执行操作。但事实上应该每次时钟中断都执行相应处理，那么修改为如下：
+        ```c
+        ticks++;
+        // if (ticks % TICK_NUM == 0) {
+            // print_ticks();
+            // current->need_resched = 1;
+        assert(current != NULL);
+        sched_class_proc_tick(current);
+        // }
+        ```
+    - 再次执行，可以得到如下结果，可见除了`priority`通过了其他所有测试：
         ```gdb
-        badsegment:              (3.2s)
+        badsegment:              (3.6s)
         -check result:                             OK
         -check output:                             OK
-        divzero:                 (2.2s)
+        divzero:                 (2.6s)
         -check result:                             OK
         -check output:                             OK
-        softint:                 (2.1s)
+        softint:                 (3.1s)
         -check result:                             OK
         -check output:                             OK
-        faultread:               (2.2s)
+        faultread:               (3.2s)
         -check result:                             OK
         -check output:                             OK
-        faultreadkernel:         (2.1s)
+        faultreadkernel:         (2.5s)
         -check result:                             OK
         -check output:                             OK
-        hello:                   (2.2s)
+        hello:                   (2.5s)
         -check result:                             OK
         -check output:                             OK
-        testbss:                 (2.2s)
+        testbss:                 (2.7s)
         -check result:                             OK
         -check output:                             OK
-        pgdir:                   (2.2s)
+        pgdir:                   (2.8s)
         -check result:                             OK
         -check output:                             OK
-        yield:                   (2.7s)
+        yield:                   (2.6s)
         -check result:                             OK
         -check output:                             OK
-        badarg:                  (2.6s)
+        badarg:                  (2.2s)
         -check result:                             OK
         -check output:                             OK
-        exit:                    (2.4s)
+        exit:                    (2.0s)
         -check result:                             OK
         -check output:                             OK
-        spin:                    (17.1s)
+        spin:                    (2.7s)
         -check result:                             OK
         -check output:                             OK
-        waitkill:                (67.1s)
+        waitkill:                (3.5s)
         -check result:                             OK
         -check output:                             OK
-        forktest:                (2.3s)
+        forktest:                (2.9s)
         -check result:                             OK
         -check output:                             OK
         forktree:                (2.7s)
         -check result:                             OK
         -check output:                             OK
-        matrix:                  (16.2s)
+        matrix:                  (28.7s)
         -check result:                             OK
         -check output:                             OK
-        priority:                (12.3s)
+        priority:                (12.8s)
         -check result:                             WRONG
         -e !! error: missing 'sched class: stride_scheduler'
         !! error: missing 'stride sched correct result: 1 2 3 4 5'
@@ -160,16 +172,8 @@ kernel panic at kern/process/proc.c:498:
 ### 练习6.2 实现 Stride Scheduling 调度算法
 
 1. **原理简述**
-    1. lab 4中，实现`do_fork()`时在创建PCB、建立子进程的内核栈后，还要调用`copy_mm()`复制父进程的虚拟地址空间，但由于在lab 4中只涉及内核线程，它们共享同一内核虚拟地址空间，因此不需要设置自己的`mm`，故这一步实际什么都没有做；但在lab 5中每个用户进程都有自己独立的虚拟地址空间，因此有着各自的`mm`进行管理，故必须实现`copy_mm()`
-    2. `copy_mm()`中首先判断是需要复制还是共享`mm`，当其参数`uint32_t clone_flags`中`CLONE_VM`位置1时，仅仅共享即可，即将目标进程的`mm`指针指向当前进程的`mm`；否则需要复制一份`mm`，如用户程序进行fork系统调用时就是这种情况
-    3. 复制时，首先新建一个`mm`，然后调用`setup_pgdir(mm)`对其建立其页表，注意在这里新分配了一个页作为子进程的页目录表，并且将内核页表`boot_pgdir`复制进了新建的页目录表，随后重建页表自映射
-    4. 随后为了避免同步问题，首先锁定当前进程的`mm`，然后调用`dup_mmap()`将当前进程的`mm`复制进子进程的`mm`，然后解锁当前进程`mm`，最后对子进程`mm`引用计数加一并返回
-    5. 在`dup_mmap()`中主要是对`mm`中管理的`vma`列表进行复制，同时还要对其对应用户虚拟地址所在的页表进行复制（因为上面`setup_pgdir()`只是复制了`boot_pgdir`页目录表，但其用户地址空间的页表并没有复制），这一步通过`copy_range()`实现，这正是本练习所要完成的，其具体步骤为针对每一段连续的用户虚拟地址空间，执行如下步骤：
-        1. 调用`get_pte(to, start, 1)`新建一个页表
-        2. 调用`alloc_page()`为新页表分配一个物理页
-        3. 分别获取当前进程已有页表的虚地址`src_kvaddr = page2kva(page)`和待填充页表的虚地址`dst_kvaddr = page2kva(npage)`
-        4. 用`memcpy()`将当前进程的指定页表内容复制到新建的带填充页表中
-        5. 将新建页表插入子进程的页目录表中，
+    1. Stride Scheduling调度算法的基本想法是，类比人走路的样子，有的人步伐(pass)小，有的人步伐大，那么一起行走时，步伐大的人就应该走走停停，多等一等步伐小的人，相应的，步伐小的人就应该多走而少等待。在该算法里，优先级与步伐pass相对应，优先级高的pass小，那么它就有更多执行的机会，而pass大的就应该多等待pass小的进程
+    2. 
 
 2. **实现方法**
     - 练习中需要编码实现的部分其实不多，主要是获取当前进程页表地址和子进程新建页表的地址，随后调用`memcpy()`复制页表内容，最后将新建的页表插入子进程的页目录表即可，实现代码如下：
