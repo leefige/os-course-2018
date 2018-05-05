@@ -74,7 +74,8 @@ stride_enqueue(struct run_queue *rq, struct proc_struct *proc) {
       * (4) increase rq->proc_num
       */
     // (1) insert the proc into rq correctly
-    skew_heap_insert(rq->lab6_run_pool, proc->lab6_run_pool, (compare_f)proc_stride_comp_f);
+    proc->lab6_priority = 1;
+    rq->lab6_run_pool = skew_heap_insert(rq->lab6_run_pool, &(proc->lab6_run_pool), (compare_f)proc_stride_comp_f);
     // (2) recalculate proc->time_slice
     if (proc->time_slice == 0 || proc->time_slice > rq->max_time_slice) {
         proc->time_slice = rq->max_time_slice;
@@ -102,7 +103,7 @@ stride_dequeue(struct run_queue *rq, struct proc_struct *proc) {
       *         list_del_init: remove a entry from the  list
       */
     // (1) remove the proc from rq correctly
-    skew_heap_remove(rq->lab6_run_pool, proc->lab6_run_pool, (compare_f)proc_stride_comp_f);
+    rq->lab6_run_pool = skew_heap_remove(rq->lab6_run_pool, &(proc->lab6_run_pool), (compare_f)proc_stride_comp_f);
     rq->proc_num --;
 }
 /*
@@ -129,13 +130,15 @@ stride_pick_next(struct run_queue *rq) {
       */
     // (1) get a  proc_struct pointer p  with the minimum value of stride
     //        (1.1) If using skew_heap, we can use le2proc get the p from rq->lab6_run_poll
-    if (!(rq->lab6_run_pool)) {
+    // cprintf("in pick next()...\n");
+    if (rq->lab6_run_pool == NULL) {
         return NULL;
     }
     struct proc_struct * proc = le2proc(rq->lab6_run_pool, lab6_run_pool);
     // (2) update p's stride value: p->lab6_stride
     proc->lab6_stride += BIG_STRIDE / proc->lab6_priority;
     // (3) return p
+    // cprintf("next is %s\n", proc->name);
     return proc;
 }
 
