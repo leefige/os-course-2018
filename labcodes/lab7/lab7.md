@@ -10,17 +10,21 @@
 
 ### 练习7.0 填写已有实验
 
-1. **对已完成的实验1/2/3/4/5/6的代码改进**
-    - trap.c
-        - 在`trap_dispatch()`中，需要设置时钟中断时调用进程调度类的`schede.c::run_timer_list()`函数以进行调度时钟感知，并更新各定时器timer，同时注释掉之前lab中的代码。实现如下：
-            ```c
-            ticks++;
-            assert(current != NULL);
-            // sched_class_proc_tick(current);
-            run_timer_list();
-            break;
-            ```
-2. **与lab 5的diff**
+#### 对已完成的实验1/2/3/4/5/6的代码改进
+
+- trap.c
+    - 在`trap_dispatch()`中，需要设置时钟中断时调用进程调度类的`schede.c::run_timer_list()`函数以进行调度时钟感知，并更新各定时器timer，同时注释掉之前lab中的代码。实现如下：
+        ```c
+        ticks++;
+        assert(current != NULL);
+        // sched_class_proc_tick(current);
+        run_timer_list();
+        break;
+        ```
+
+### 练习7.1 理解内核级信号量的实现和基于内核级信号量的哲学家就餐问题
+
+1. **与lab 6的diff**
     1. mm/vmm.[ch]
         - 将原有的`lock`修改为基于`semaphore`实现的同步互斥控制
         - `mm_struct`种新增`locked_by`标识被哪个进程锁定
@@ -33,103 +37,37 @@
         - 新增`sys_sleep()`
     5. sync/
         - 将原有基于x86 原子指令实现的`lock`锁机制改为基于信号量和管程实现的同步互斥机制
+2. **内核级信号量的设计描述**
+    - 等待队列`wait_t`
+        - 首先实现了等待队列`wait_t`，用于在信号量实现中，对于不能满足互斥条件而必须等待的进程，将其加入等待队列并休眠从而让出CPU，而不是让其处于“忙等”状态消耗CPU资源
+        - 等待队列为一个双向队列，实现在wait.[ch]中，并且提供了初始化、入队、出队等方法
+        - 在上述方法基础上，还封装了两个与进程相关联的方法`wait_current_set()`和`wait_current_del()`（以宏的形式），这两个方法作为接口被上层调用，用于将当前进程加入等待队列，或者从等待队列中删除
+    - 信号量`semaphore_t`
+        - 结构：包含两个量：`value`即信号量的值，表示资源数量，为0时表示条件变量；`wait_queue`即等待队列
+        - `down()`：即P()操作，用于“占用”一个信号量，其实现上，若value大于0，则直接对value减一并返回，相当于赋予访问权限；否则，将当前进程阻塞，加入等待队列，并调用`schedule()`让出CPU，当其再次被唤醒时，将自己从等待队列中移除
+        - `up()`：即V()操作，用于“释放”一个信号量，具体实现为，取出等待队列队首元素，若为NULL，说明等待队列为空，则直接对value加一并返回；否则，说明有其他进程被该信号量阻塞，那么唤醒该进程（不改变value值）
+        - 需要说明的是，上述对value和等待队列的操作均要求为原子操作，因为信号量为内核级实现，因此可以在内部实现上灵活使用关中断/恢复中断的方法，保证不被打断
 
-### 练习7.1 理解内核级信号量的实现和基于内核级信号量的哲学家就餐问题
+3. **基于内核级信号量的哲学家就餐问题执行流程**
+    - 哲学家就餐问题定义在`check_sync.c`中，入口为`check_sync()`，在该函数中，会分别用信号量和管程测试哲学家就餐问题，这里先讨论信号量实现，管程实现在下一个练习中涉及
+    - 问题中定义了三个变量：
+        1. `int state_sema[N]`：哲学家状态，可以为{THINK, HUNGRY, EAT}之一
+        2. `semaphore_t mutex`，互斥锁，用于对共享变量`state_sema[N]`的互斥保护
+        3. `semaphore_t s[N]`：独属于每个哲学家的条件变量，用于标志该哲学家是否能进餐（即是否同时拿到了两只叉子）
+    - 对于信号量实现，首先初始化mutex信号量值为1，表示同时只允许1个进程访问state_sema；再将所有s初始化为0，作为条件变量；接着利用`kernel_thread()`产生N个`philosopher_using_semaphore()`内核线程表示N个哲学家
+    - 在各哲学家线程函数`philosopher_using_semaphore()`中，循环尝试执行：思考（sleep），取叉子（`phi_take_forks_sema()`），进餐（sleep），放回叉子（`phi_put_forks_sema()`），其中，在取叉子时可能由于没能同时取到两个叉子而被阻塞
+    - 在`phi_take_forks_sema()`中，首先获取mutex，接着在state_sema中记录自己为HUNGRY，然后调用`phi_test_sema()`尝试获取叉子：
+        - `phi_test_sema()`中，需要做一个判断：自己是否HUNGRY？左右两边是否都没有在EATING？
+        - 若满足条件，则将自己的state_sema置为EATING，同时对自己的s调用`up()`使条件变量值变为1
+        - 否则返回
+    - 随后结束对state_sema的操作，释放mutex；接着尝试能否进餐，即对自己的s调用`down()`：
+        - 若在上一步中成功调用了`up()`则此处`down()`可以成功执行，那么返回继续执行，哲学家将sleep以模拟进餐
+        - 否则，此处`down()`将因为条件变量s的值为0而被阻塞，哲学家被加入等待队列开始等待，直到条件变量s被满足，进程将被唤醒
+    - 进餐结束后，在`phi_put_forks_sema()`中，首先获取mutex，接着在state_sema中记录自己为THINKING，然后分别对左右两位哲学家调用`phi_test_sema()`，即尝试唤醒他们进餐，如果他们中有人为HUNGRY状态，则会类似上面的流程，尝试获取叉子，并随之更新各自的条件变量s，而这会进一步唤醒可能处于各自条件变量s的等待队列的哲学家，从而让他们成功进餐
 
-2. **运行结果**
-    - 直接执行`make grade`，会发现除了`priority`和`waitkill`外全部通过，但根据实验指导书中说法，`waitkill`不应该未通过。经过检查，可以发现`waitkill`由于多次调用`yield()`导致执行时间很长，超过了测试脚本的`timeout`限制
-    - 考虑其原因，应该是由于每个时间片过长，而这是因为在`trap.c::trap_dispatch()`中，对时钟中断的处理方法有问题。我沿用了之前输出“100 ticks”时，判断`ticks`为100整数倍才执行操作。但事实上应该每次时钟中断都执行相应处理，那么修改为如下：
-        ```c
-        ticks++;
-        // if (ticks % TICK_NUM == 0) {
-            // print_ticks();
-            // current->need_resched = 1;
-        assert(current != NULL);
-        sched_class_proc_tick(current);
-        // }
-        ```
-    - 再次执行，可以得到如下结果，可见除了`priority`通过了其他所有测试：
-        ```gdb
-        badsegment:              (3.6s)
-        -check result:                             OK
-        -check output:                             OK
-        divzero:                 (2.6s)
-        -check result:                             OK
-        -check output:                             OK
-        softint:                 (3.1s)
-        -check result:                             OK
-        -check output:                             OK
-        faultread:               (3.2s)
-        -check result:                             OK
-        -check output:                             OK
-        faultreadkernel:         (2.5s)
-        -check result:                             OK
-        -check output:                             OK
-        hello:                   (2.5s)
-        -check result:                             OK
-        -check output:                             OK
-        testbss:                 (2.7s)
-        -check result:                             OK
-        -check output:                             OK
-        pgdir:                   (2.8s)
-        -check result:                             OK
-        -check output:                             OK
-        yield:                   (2.6s)
-        -check result:                             OK
-        -check output:                             OK
-        badarg:                  (2.2s)
-        -check result:                             OK
-        -check output:                             OK
-        exit:                    (2.0s)
-        -check result:                             OK
-        -check output:                             OK
-        spin:                    (2.7s)
-        -check result:                             OK
-        -check output:                             OK
-        waitkill:                (3.5s)
-        -check result:                             OK
-        -check output:                             OK
-        forktest:                (2.9s)
-        -check result:                             OK
-        -check output:                             OK
-        forktree:                (2.7s)
-        -check result:                             OK
-        -check output:                             OK
-        matrix:                  (28.7s)
-        -check result:                             OK
-        -check output:                             OK
-        priority:                (12.8s)
-        -check result:                             WRONG
-        -e !! error: missing 'sched class: stride_scheduler'
-        !! error: missing 'stride sched correct result: 1 2 3 4 5'
-
-        -check output:                             OK
-        Total Score: 163/170
-        Makefile:314: recipe for target 'grade' failed
-        make: *** [grade] Error 1
-        ```
-
-3. **回答问题**
-    - 请理解并分析sched_calss中各个函数指针的用法，并结合Round Robin 调度算法描述ucore的调度执行过程
-        > 1. 各函数指针的用法：
-        >    - `void (*init)(struct run_queue *rq)`：用于该调度类的初始化，包括对timer_list的初始化、rq中`max_time_slice`的初始化以及选择需要的调度类实例，并进一步调用调度类实例的`init()`进行其自己的初始化
-        >    - `void (*enqueue)(struct run_queue *rq, struct proc_struct *proc)`：用于将一个PCB加入就绪队列rq中
-        >    - `void (*dequeue)(struct run_queue *rq, struct proc_struct *proc)`：用于从就绪队列rq中将某个PCB取出
-        >    - `struct proc_struct *(*pick_next)(struct run_queue *rq)`：用于从就绪队列中挑选一个就绪的进程用作下一个被切换到的进程
-        >    - `void (*proc_tick)(struct run_queue *rq, struct proc_struct *proc)`：用于调度算法的时间感知，时钟中断时会调用该函数，进而对相应的进程的时间片进行操作
-        > 2. RR算法调度过程：
-        >    - 时钟中断，转入中断处理例程`trap()`，调用`trap_dispatch()`
-        >    - `trap_dispatch()`中判断出中断类型为时钟中断，`ticks`递增，若`ticks`达到TICK_NUM整数倍，则对当前进程current执行调度类框架的`sched_class_proc_tick()`，其中会判断当前进程是否为idle，若为idle则直接置其`need_resched`为1并返回，否则，对当前进程调用调度类的时间感知函数`proc_tick()`
-        >    - 在RR算法的`proc_tick()`中，会对当前进程的时间片`time_slice`递减，若时间片为0，则置其为需要被调度`proc->need_resched = 1`
-        >    - 逐层返回，直到回到`trap()`中，继续执行调度代码，若判断当前进程非内核线程，那么可以调度，先判断当前进程是否已经退出，即`current->flags & PF_EXITING`，若是则直接调用`do_exit()`退出；否则，检查当前进程是否需要被调度，即`current->need_resched`，若是，则调用调度函数`schedule()`进行进程调度
-        >    - 在`schedule()`中进程调度，需要保证不被打断，因此要屏蔽中断
-        >       - 首先将当前进程的`need_resched`重置，接着判断当前进程是否是就绪/运行态`PROC_RUNNABLE`，若是则将其加入就绪队列，这里调用了`sched_class_enqueue()`，其中RR的`enqueue()`将当前进程插入rq的`run_list`尾，并将其时间片置为合理值（若为0，说明上一次时间片完，则将时间片置为最大时间片）
-        >       - 然后调用`sched_class_pick_next()`挑选出下一个要运行的进程，RR的`pick_next()`直接返回`run_list`队首的进程；随后将这个挑选出来的进程从就绪队列拿出，调用`sched_class_dequeue()`，RR的`dequeue()`直接将该进程从链表中删除即可
-        >       - 最后调用`proc_run()`进行实际的进程切换，并恢复中断状态，返回
-    - 请简要说明如何设计实现”多级反馈队列调度算法“，给出概要设计，鼓励给出详细设计
-        > - 首先需要若干个run_queue队列，每个有自己的优先级，各优先级有着自己的最大时间片，且高优先级时间片小，新进程第一次enqueue时在最高优先级
-        > - 每次进程切换时，检查其是否是因为时间片用完而被抢占，若是，则其再次enqueue时进入低一级优先级的队列
-        > - pick_next时，在队列内可以使用先来先服务方式顺序进行；在队列间，可以使用固定优先级方式，即先处理高优先级的队列，再处理低优先级的队列（由于高优先级队列中多为交互密集型进程，它们大多时候在sleep等待交互事件，因此大多数情况下也不会导致饥饿发生）
+3. **用户态进程/线程提供信号量机制的设计方案**
+    - 可以直接使用已经实现的内核信号量，类似fork，sleep等，将其封装为syscall，提供给用户系统调用接口。但问题是，由于当前内核实现的up，down都需要传入semaphore参数，但这是定义在内核中的类型，用户无法直接使用，这可能会带来一些麻烦
+    - 更好的做法是，提供一个更高层次封装的接口，在内核维护所有实际的semaphore，类似进程管理，只给用户提供当前使用的semaphore的id，用户通过这个id，配合其他提供给用户作为系统调用的接口（如获取semaphore的id，对某个id的semaphore进行up/down操作等），实现基于信号量的用户态同步互斥
 
 ### 练习7.2 完成内核级条件变量和基于内核级条件变量的哲学家就餐问题
 
