@@ -47,12 +47,12 @@ cond_wait (condvar_t *cvp) {
     cvp->count ++;
     monitor_t * mt = cvp->owner;
     if(mt->next_count > 0) {
-        up(mt->next);
+        up(&(mt->next));
     }
     else {
-        up(mt->mutex);
+        up(&(mt->mutex));
     }
-    down(cvp->sem);
+    down(&(cvp->sem));
     cvp->count --;
     cprintf("cond_wait end:  cvp %x, cvp->count %d, cvp->owner->next_count %d\n", cvp, cvp->count, cvp->owner->next_count);
 }
