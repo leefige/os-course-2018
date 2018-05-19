@@ -179,29 +179,35 @@ void phi_test_condvar (i) {
 
 
 void phi_take_forks_condvar(int i) {
-     down(&(mtp->mutex));
+    down(&(mtp->mutex));
 //--------into routine in monitor--------------
-     // LAB7 EXERCISE1: YOUR CODE
+     // LAB7 EXERCISE1: 2015010062
      // I am hungry
      // try to get fork
+    state_sema[i]=HUNGRY; /* 记录下哲学家i饥饿的事实 */
+    phi_test_condvar(i); /* 试图得到两只叉子 */
+
 //--------leave routine in monitor--------------
-      if(mtp->next_count>0)
-         up(&(mtp->next));
-      else
-         up(&(mtp->mutex));
+    if(mtp->next_count>0)
+        up(&(mtp->next));
+    else
+        up(&(mtp->mutex));
 }
 
 void phi_put_forks_condvar(int i) {
      down(&(mtp->mutex));
 
 //--------into routine in monitor--------------
-     // LAB7 EXERCISE1: YOUR CODE
+     // LAB7 EXERCISE1: 2015010062
      // I ate over
      // test left and right neighbors
+    state_sema[i]=THINKING; /* 哲学家进餐结束 */
+    phi_test_condvar(LEFT); /* 看一下左邻居现在是否能进餐 */
+    phi_test_condvar(RIGHT); /* 看一下右邻居现在是否能进餐 */
 //--------leave routine in monitor--------------
-     if(mtp->next_count>0)
+    if(mtp->next_count>0)
         up(&(mtp->next));
-     else
+    else
         up(&(mtp->mutex));
 }
 
@@ -231,16 +237,16 @@ void check_sync(void){
     int i;
 
     //check semaphore
-    sem_init(&mutex, 1);
-    for(i=0;i<N;i++){
-        sem_init(&s[i], 0);
-        int pid = kernel_thread(philosopher_using_semaphore, (void *)i, 0);
-        if (pid <= 0) {
-            panic("create No.%d philosopher_using_semaphore failed.\n");
-        }
-        philosopher_proc_sema[i] = find_proc(pid);
-        set_proc_name(philosopher_proc_sema[i], "philosopher_sema_proc");
-    }
+    // sem_init(&mutex, 1);
+    // for(i=0;i<N;i++){
+    //     sem_init(&s[i], 0);
+    //     int pid = kernel_thread(philosopher_using_semaphore, (void *)i, 0);
+    //     if (pid <= 0) {
+    //         panic("create No.%d philosopher_using_semaphore failed.\n");
+    //     }
+    //     philosopher_proc_sema[i] = find_proc(pid);
+    //     set_proc_name(philosopher_proc_sema[i], "philosopher_sema_proc");
+    // }
 
     //check condition variable
     monitor_init(&mt, N);

@@ -47,7 +47,6 @@
         - `down()`：即P()操作，用于“占用”一个信号量，其实现上，若value大于0，则直接对value减一并返回，相当于赋予访问权限；否则，将当前进程阻塞，加入等待队列，并调用`schedule()`让出CPU，当其再次被唤醒时，将自己从等待队列中移除
         - `up()`：即V()操作，用于“释放”一个信号量，具体实现为，取出等待队列队首元素，若为NULL，说明等待队列为空，则直接对value加一并返回；否则，说明有其他进程被该信号量阻塞，那么唤醒该进程（不改变value值）
         - 需要说明的是，上述对value和等待队列的操作均要求为原子操作，因为信号量为内核级实现，因此可以在内部实现上灵活使用关中断/恢复中断的方法，保证不被打断
-
 3. **基于内核级信号量的哲学家就餐问题执行流程**
     - 哲学家就餐问题定义在`check_sync.c`中，入口为`check_sync()`，在该函数中，会分别用信号量和管程测试哲学家就餐问题，这里先讨论信号量实现，管程实现在下一个练习中涉及
     - 问题中定义了三个变量：
@@ -64,10 +63,67 @@
         - 若在上一步中成功调用了`up()`则此处`down()`可以成功执行，那么返回继续执行，哲学家将sleep以模拟进餐
         - 否则，此处`down()`将因为条件变量s的值为0而被阻塞，哲学家被加入等待队列开始等待，直到条件变量s被满足，进程将被唤醒
     - 进餐结束后，在`phi_put_forks_sema()`中，首先获取mutex，接着在state_sema中记录自己为THINKING，然后分别对左右两位哲学家调用`phi_test_sema()`，即尝试唤醒他们进餐，如果他们中有人为HUNGRY状态，则会类似上面的流程，尝试获取叉子，并随之更新各自的条件变量s，而这会进一步唤醒可能处于各自条件变量s的等待队列的哲学家，从而让他们成功进餐
-
-3. **用户态进程/线程提供信号量机制的设计方案**
+4. **用户态进程/线程提供信号量机制的设计方案**
     - 可以直接使用已经实现的内核信号量，类似fork，sleep等，将其封装为syscall，提供给用户系统调用接口。但问题是，由于当前内核实现的up，down都需要传入semaphore参数，但这是定义在内核中的类型，用户无法直接使用，这可能会带来一些麻烦
     - 更好的做法是，提供一个更高层次封装的接口，在内核维护所有实际的semaphore，类似进程管理，只给用户提供当前使用的semaphore的id，用户通过这个id，配合其他提供给用户作为系统调用的接口（如获取semaphore的id，对某个id的semaphore进行up/down操作等），实现基于信号量的用户态同步互斥
+5. **附：基于信号量的哲学家就餐问题执行结果**
+    ```gdb
+    I am No.4 philosopher_sema
+    Iter 1, No.4 philosopher_sema is thinking
+    I am No.3 philosopher_sema
+    Iter 1, No.3 philosopher_sema is thinking
+    I am No.2 philosopher_sema
+    Iter 1, No.2 philosopher_sema is thinking
+    I am No.1 philosopher_sema
+    Iter 1, No.1 philosopher_sema is thinking
+    I am No.0 philosopher_sema
+    Iter 1, No.0 philosopher_sema is thinking
+
+    Iter 1, No.2 philosopher_sema is eating
+    Iter 1, No.4 philosopher_sema is eating
+    Iter 2, No.4 philosopher_sema is thinking
+    Iter 1, No.0 philosopher_sema is eating
+    Iter 2, No.2 philosopher_sema is thinking
+    Iter 1, No.3 philosopher_sema is eating
+    Iter 2, No.3 philosopher_sema is thinking
+    Iter 2, No.2 philosopher_sema is eating
+    Iter 2, No.0 philosopher_sema is thinking
+    Iter 2, No.4 philosopher_sema is eating
+    Iter 3, No.4 philosopher_sema is thinking
+    Iter 2, No.0 philosopher_sema is eating
+    Iter 3, No.2 philosopher_sema is thinking
+    Iter 2, No.3 philosopher_sema is eating
+    Iter 3, No.3 philosopher_sema is thinking
+    Iter 3, No.2 philosopher_sema is eating
+    Iter 3, No.0 philosopher_sema is thinking
+    Iter 3, No.4 philosopher_sema is eating
+    Iter 4, No.4 philosopher_sema is thinking
+    Iter 3, No.0 philosopher_sema is eating
+    Iter 4, No.2 philosopher_sema is thinking
+    Iter 3, No.3 philosopher_sema is eating
+    Iter 4, No.3 philosopher_sema is thinking
+    Iter 4, No.2 philosopher_sema is eating
+    Iter 4, No.0 philosopher_sema is thinking
+    Iter 4, No.4 philosopher_sema is eating
+    No.4 philosopher_sema quit
+    Iter 4, No.0 philosopher_sema is eating
+    No.2 philosopher_sema quit
+    Iter 4, No.3 philosopher_sema is eating
+    No.3 philosopher_sema quit
+    No.0 philosopher_sema quit
+    Iter 1, No.1 philosopher_sema is eating
+    Iter 2, No.1 philosopher_sema is thinking
+    Iter 2, No.1 philosopher_sema is eating
+    Iter 3, No.1 philosopher_sema is thinking
+    Iter 3, No.1 philosopher_sema is eating
+    Iter 4, No.1 philosopher_sema is thinking
+    Iter 4, No.1 philosopher_sema is eating
+    No.1 philosopher_sema quit
+    all user-mode processes have quit.
+    init check memory pass.
+    kernel panic at kern/process/proc.c:498:
+        initproc exit.
+    ```
 
 ### 练习7.2 完成内核级条件变量和基于内核级条件变量的哲学家就餐问题
 
@@ -138,58 +194,64 @@
         ```
     7. 在进行上述全部修改后，执行`make grade`可以看到通过了全部测试（注意，有时`make grade`时可能会出现priority无法通过的情况，此时可以通过`make run-priority`查看结果；或者尝试重复运行`make grade`）：
         ```gdb
-        badsegment:              (2.9s)
+        badsegment:              (5.3s)
         -check result:                             OK
         -check output:                             OK
-        divzero:                 (2.3s)
+        divzero:                 (3.7s)
         -check result:                             OK
         -check output:                             OK
-        softint:                 (2.6s)
+        softint:                 (3.6s)
         -check result:                             OK
         -check output:                             OK
-        faultread:               (2.7s)
+        faultread:               (2.3s)
         -check result:                             OK
         -check output:                             OK
-        faultreadkernel:         (2.2s)
+        faultreadkernel:         (2.1s)
         -check result:                             OK
         -check output:                             OK
-        hello:                   (2.4s)
+        hello:                   (3.6s)
         -check result:                             OK
         -check output:                             OK
-        testbss:                 (2.7s)
+        testbss:                 (2.1s)
         -check result:                             OK
         -check output:                             OK
-        pgdir:                   (2.9s)
+        pgdir:                   (3.9s)
         -check result:                             OK
         -check output:                             OK
-        yield:                   (2.7s)
+        yield:                   (3.6s)
         -check result:                             OK
         -check output:                             OK
-        badarg:                  (3.0s)
+        badarg:                  (3.6s)
         -check result:                             OK
         -check output:                             OK
-        exit:                    (2.6s)
+        exit:                    (3.2s)
         -check result:                             OK
         -check output:                             OK
-        spin:                    (2.7s)
+        spin:                    (3.7s)
         -check result:                             OK
         -check output:                             OK
-        waitkill:                (3.2s)
+        waitkill:                (3.9s)
         -check result:                             OK
         -check output:                             OK
-        forktest:                (2.1s)
+        forktest:                (3.6s)
         -check result:                             OK
         -check output:                             OK
-        forktree:                (2.6s)
+        forktree:                (3.5s)
         -check result:                             OK
         -check output:                             OK
-        matrix:                  (26.5s)
+        priority:                (15.8s)
         -check result:                             OK
         -check output:                             OK
-        priority:                (13.3s)
+        sleep:                   (11.7s)
         -check result:                             OK
         -check output:                             OK
-        Total Score: 170/170
+        sleepkill:               (3.3s)
+        -check result:                             OK
+        -check output:                             OK
+        matrix:                  (13.3s)
+        -check result:                             OK
+        -check output:                             OK
+        Total Score: 190/190
         ```
 
 ## 2. 标准答案对比
