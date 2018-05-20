@@ -253,6 +253,102 @@
         -check output:                             OK
         Total Score: 190/190
         ```
+3. **附：基于管程&条件变量的哲学家就餐问题执行结果**
+    ```gdb
+    I am No.4 philosopher_condvar
+    Iter 1, No.4 philosopher_condvar is thinking
+    I am No.3 philosopher_condvar
+    Iter 1, No.3 philosopher_condvar is thinking
+    I am No.2 philosopher_condvar
+    Iter 1, No.2 philosopher_condvar is thinking
+    I am No.1 philosopher_condvar
+    Iter 1, No.1 philosopher_condvar is thinking
+    I am No.0 philosopher_condvar
+    Iter 1, No.0 philosopher_condvar is thinking
+
+    phi_test_condvar: state_condvar[1] will eating
+    phi_test_condvar: signal self_cv[1] 
+    cond_signal begin: cvp c03a728c, cvp->count 0, cvp->owner->next_count 0
+    cond_signal end: cvp c03a728c, cvp->count 0, cvp->owner->next_count 0
+    Iter 1, No.1 philosopher_condvar is eating
+    Iter 1, No.0 philosopher_condvar is eating
+    Iter 1, No.2 philosopher_condvar is eating
+    phi_test_condvar: state_condvar[3] will eating
+    phi_test_condvar: signal self_cv[3] 
+    cond_signal begin: cvp c03a72b4, cvp->count 0, cvp->owner->next_count 0
+    cond_signal end: cvp c03a72b4, cvp->count 0, cvp->owner->next_count 0
+    Iter 1, No.3 philosopher_condvar is eating
+    Iter 1, No.4 philosopher_condvar is eating
+    Iter 2, No.2 philosopher_condvar is thinking
+    Iter 2, No.0 philosopher_condvar is thinking
+    Iter 2, No.1 philosopher_condvar is thinking
+    Iter 2, No.4 philosopher_condvar is thinking
+    Iter 2, No.3 philosopher_condvar is thinking
+    phi_test_condvar: state_condvar[0] will eating
+    phi_test_condvar: signal self_cv[0] 
+    cond_signal begin: cvp c03a7278, cvp->count 0, cvp->owner->next_count 0
+    cond_signal end: cvp c03a7278, cvp->count 0, cvp->owner->next_count 0
+    Iter 2, No.0 philosopher_condvar is eating
+    phi_test_condvar: state_condvar[2] will eating
+    phi_test_condvar: signal self_cv[2] 
+    cond_signal begin: cvp c03a72a0, cvp->count 0, cvp->owner->next_count 0
+    cond_signal end: cvp c03a72a0, cvp->count 0, cvp->owner->next_count 0
+    Iter 2, No.2 philosopher_condvar is eating
+    Iter 2, No.3 philosopher_condvar is eating
+    Iter 2, No.4 philosopher_condvar is eating
+    Iter 2, No.1 philosopher_condvar is eating
+    phi_test_condvar: state_condvar[4] will eating
+    phi_test_condvar: signal self_cv[4] 
+    cond_signal begin: cvp c03a72c8, cvp->count 0, cvp->owner->next_count 0
+    cond_signal end: cvp c03a72c8, cvp->count 0, cvp->owner->next_count 0
+    Iter 3, No.0 philosopher_condvar is thinking
+    Iter 3, No.1 philosopher_condvar is thinking
+    Iter 3, No.4 philosopher_condvar is thinking
+    Iter 3, No.3 philosopher_condvar is thinking
+    Iter 3, No.2 philosopher_condvar is thinking
+    phi_test_condvar: state_condvar[3] will eating
+    phi_test_condvar: signal self_cv[3] 
+    cond_signal begin: cvp c03a72b4, cvp->count 0, cvp->owner->next_count 0
+    cond_signal end: cvp c03a72b4, cvp->count 0, cvp->owner->next_count 0
+    Iter 3, No.3 philosopher_condvar is eating
+    Iter 3, No.2 philosopher_condvar is eating
+    Iter 3, No.4 philosopher_condvar is eating
+    phi_test_condvar: state_condvar[1] will eating
+    phi_test_condvar: signal self_cv[1] 
+    cond_signal begin: cvp c03a728c, cvp->count 0, cvp->owner->next_count 0
+    cond_signal end: cvp c03a728c, cvp->count 0, cvp->owner->next_count 0
+    Iter 3, No.1 philosopher_condvar is eating
+    Iter 3, No.0 philosopher_condvar is eating
+    Iter 4, No.4 philosopher_condvar is thinking
+    Iter 4, No.2 philosopher_condvar is thinking
+    Iter 4, No.3 philosopher_condvar is thinking
+    Iter 4, No.0 philosopher_condvar is thinking
+    Iter 4, No.1 philosopher_condvar is thinking
+    phi_test_condvar: state_condvar[3] will eating
+    phi_test_condvar: signal self_cv[3] 
+    cond_signal begin: cvp c03a72b4, cvp->count 0, cvp->owner->next_count 0
+    cond_signal end: cvp c03a72b4, cvp->count 0, cvp->owner->next_count 0
+    Iter 4, No.3 philosopher_condvar is eating
+    Iter 4, No.2 philosopher_condvar is eating
+    Iter 4, No.4 philosopher_condvar is eating
+    phi_test_condvar: state_condvar[1] will eating
+    phi_test_condvar: signal self_cv[1] 
+    cond_signal begin: cvp c03a728c, cvp->count 0, cvp->owner->next_count 0
+    cond_signal end: cvp c03a728c, cvp->count 0, cvp->owner->next_count 0
+    Iter 4, No.1 philosopher_condvar is eating
+    Iter 4, No.0 philosopher_condvar is eating
+    No.4 philosopher_condvar quit
+    No.2 philosopher_condvar quit
+    No.3 philosopher_condvar quit
+    No.0 philosopher_condvar quit
+    No.1 philosopher_condvar quit
+    all user-mode processes have quit.
+    init check memory pass.
+    kernel panic at kern/process/proc.c:498:
+        initproc exit.
+
+    ```
+
 
 ## 2. 标准答案对比
 
