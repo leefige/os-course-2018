@@ -600,7 +600,7 @@ sfs_io_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, void *buf, off_t offset
 	 *       NOTICE: useful function: sfs_bmap_load_nolock, sfs_buf_op	
 	*/
     // (1) If offset isn't aligned with the first block, Rd/Wr some content from offset to the end of the first block
-    blkoff = offset % SFS_BLKSIZE；
+    blkoff = offset % SFS_BLKSIZE;
     if (blkoff != 0) {
         // Rd/Wr size = (nblks != 0) ? (SFS_BLKSIZE - blkoff) : (endpos - offset)
         size = (nblks != 0) ? (SFS_BLKSIZE - blkoff) : (endpos - offset);
@@ -648,7 +648,7 @@ sfs_io_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, void *buf, off_t offset
         }
         alen += size;
     }
-    
+
 out:
     *alenp = alen;
     if (offset + alen > sin->din->size) {
