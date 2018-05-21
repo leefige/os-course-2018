@@ -122,7 +122,7 @@ alloc_proc(void) {
      *     uint32_t lab6_stride;                       // FOR LAB6 ONLY: the current stride of the process
      *     uint32_t lab6_priority;                     // FOR LAB6 ONLY: the priority of process, set by lab6_set_priority(uint32_t)
      */
-    //LAB8:EXERCISE2 YOUR CODE HINT:need add some code to init fs in proc_struct, ...
+    //LAB8:EXERCISE2 2015010062 HINT:need add some code to init fs in proc_struct, ...
         proc->state = PROC_UNINIT;
         proc->pid = -1;         // an invalid pid
         proc->runs = 0;
@@ -146,6 +146,8 @@ alloc_proc(void) {
         skew_heap_init(&(proc->lab6_run_pool));
         proc->lab6_stride = 0;
         proc->lab6_priority = 1;
+        // NEW IN LAB8
+        proc->filesp = NULL;
 
         memset(&(proc->context), 0, sizeof(struct context));
         memset(proc->name, 0, sizeof(char) * (PROC_NAME_LEN + 1));
