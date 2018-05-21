@@ -501,8 +501,8 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
     if (setup_kstack(proc) != 0) {
         goto bad_fork_cleanup_proc;
     }
-    //    2.5 copy fs
-    if (copy_fs(clone_flags, proc) != 0) {
+    //    2.5 copy files
+    if (copy_files(clone_flags, proc) != 0) {
         goto bad_fork_cleanup_kstack;
     }
     //    3. call copy_mm to dup OR share mm according clone_flag
