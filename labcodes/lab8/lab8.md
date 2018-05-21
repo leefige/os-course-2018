@@ -144,36 +144,88 @@
         phi_test_condvar(LEFT); /* 看一下左邻居现在是否能进餐 */
         phi_test_condvar(RIGHT); /* 看一下右邻居现在是否能进餐 */
         ```
-    5. 在进行上述全部修改后，执行`make grade`可以看到通过了全部测试：
+    5. 执行`make qemu`，待执行完哲学家就餐问题测试后，进入shell，分别执行`ls`和`hello`可以看到如下结果：
         ```gdb
-        badsegment:              (3.8s)
+        $ ls
+        @ is  [directory] 2(hlinks) 23(blocks) 5888(bytes) : @'.'
+        [d]   2(h)       23(b)     5888(s)   .
+        [d]   2(h)       23(b)     5888(s)   ..
+        [-]   1(h)       11(b)    44508(s)   sh
+        [-]   1(h)       10(b)    40292(s)   priority
+        [-]   1(h)       10(b)    40220(s)   divzero
+        [-]   1(h)       10(b)    40208(s)   faultreadkernel
+        [-]   1(h)       10(b)    40200(s)   hello
+        [-]   1(h)       10(b)    40200(s)   softint
+        [-]   1(h)       10(b)    40224(s)   testbss
+        [-]   1(h)       10(b)    40332(s)   waitkill
+        [-]   1(h)       10(b)    40192(s)   pgdir
+        [-]   1(h)       10(b)    40360(s)   ls
+        [-]   1(h)       10(b)    40204(s)   badsegment
+        [-]   1(h)       10(b)    40228(s)   forktest
+        [-]   1(h)       10(b)    40196(s)   spin
+        [-]   1(h)       10(b)    40204(s)   faultread
+        main-loop: WARNING: I/O thread spun for 1000 iterations
+        [-]   1(h)       10(b)    40200(s)   yield
+        [-]   1(h)       10(b)    40304(s)   matrix
+        [-]   1(h)       10(b)    40252(s)   forktree
+        [-]   1(h)       10(b)    40204(s)   sleepkill
+        [-]   1(h)       10(b)    40220(s)   sleep
+        [-]   1(h)       10(b)    40224(s)   exit
+        [-]   1(h)       10(b)    40200(s)   badarg
+        lsdir: step 4
+        $ hello
+        Hello world!!.
+        I am process 15.
+        hello pass.
+        ```
+    6. 执行`make grade`可以看到通过了全部测试：
+        ```gdb
+        Makefile:277: warning: overriding recipe for target 'disk0'
+        Makefile:274: warning: ignoring old recipe for target 'disk0'
+        Makefile:277: warning: overriding recipe for target 'disk0'
+        Makefile:274: warning: ignoring old recipe for target 'disk0'
+        Makefile:277: warning: overriding recipe for target 'disk0'
+        Makefile:274: warning: ignoring old recipe for target 'disk0'
+        Makefile:277: warning: overriding recipe for target 'disk0'
+        Makefile:274: warning: ignoring old recipe for target 'disk0'
+        Makefile:277: warning: overriding recipe for target 'disk0'
+        Makefile:274: warning: ignoring old recipe for target 'disk0'
+        Makefile:277: warning: overriding recipe for target 'disk0'
+        Makefile:274: warning: ignoring old recipe for target 'disk0'
+        Makefile:277: warning: overriding recipe for target 'disk0'
+        Makefile:274: warning: ignoring old recipe for target 'disk0'
+        Makefile:277: warning: overriding recipe for target 'disk0'
+        Makefile:274: warning: ignoring old recipe for target 'disk0'
+        Makefile:277: warning: overriding recipe for target 'disk0'
+        Makefile:274: warning: ignoring old recipe for target 'disk0'
+        badsegment:              (19.5s)
         -check result:                             OK
         -check output:                             OK
-        divzero:                 (3.1s)
+        divzero:                 (4.1s)
         -check result:                             OK
         -check output:                             OK
-        softint:                 (3.0s)
+        softint:                 (3.9s)
         -check result:                             OK
         -check output:                             OK
-        faultread:               (1.7s)
+        faultread:               (2.3s)
         -check result:                             OK
         -check output:                             OK
-        faultreadkernel:         (1.4s)
+        faultreadkernel:         (2.1s)
         -check result:                             OK
         -check output:                             OK
-        hello:                   (2.8s)
+        hello:                   (3.5s)
         -check result:                             OK
         -check output:                             OK
-        testbss:                 (1.7s)
+        testbss:                 (2.5s)
         -check result:                             OK
         -check output:                             OK
         pgdir:                   (3.1s)
         -check result:                             OK
         -check output:                             OK
-        yield:                   (3.1s)
+        yield:                   (4.2s)
         -check result:                             OK
         -check output:                             OK
-        badarg:                  (3.1s)
+        badarg:                  (2.8s)
         -check result:                             OK
         -check output:                             OK
         exit:                    (2.9s)
@@ -182,29 +234,28 @@
         spin:                    (3.1s)
         -check result:                             OK
         -check output:                             OK
-        waitkill:                (4.1s)
+        waitkill:                (4.5s)
         -check result:                             OK
         -check output:                             OK
-        forktest:                (2.9s)
+        forktest:                (3.9s)
         -check result:                             OK
         -check output:                             OK
-        forktree:                (3.3s)
+        forktree:                (5.7s)
         -check result:                             OK
         -check output:                             OK
-        priority:                (16.2s)
+        priority:                (15.4s)
         -check result:                             OK
         -check output:                             OK
-        sleep:                   (12.5s)
+        sleep:                   (12.3s)
         -check result:                             OK
         -check output:                             OK
-        sleepkill:               (3.1s)
+        sleepkill:               (3.7s)
         -check result:                             OK
         -check output:                             OK
-        matrix:                  (12.1s)
+        matrix:                  (11.6s)
         -check result:                             OK
         -check output:                             OK
         Total Score: 190/190
-
         ```
 4. **回答问题**
     1. 给出给用户态进程/线程提供条件变量机制的设计方案，并比较说明给内核级提供条件变量机制的异同
