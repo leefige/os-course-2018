@@ -4,42 +4,87 @@
 ### 12.1 进程切换
 
 1. 进程切换的可能时机有哪些？
-
- > 时间片用完、被高优先级进程抢先、进入等待状态、进程结束
+  > 时间片用完、被高优先级进程抢占、进入等待状态、进程结束
+  > 中断或系统调用返回时判断是否需要进程切换。如果需要，则实施切换。
 
 2. ucore进程控制块proc_struct数据结构内容有些什么？
-
- > 进程基本信息
-
- > 进程状态信息
-
- > 进程执行现场保存
-
- > 进程队列指针
+  > 进程标识信息
+  > 进程控制信息，如资源、存储管理、通信、调度、连接结构等
+  > 进程执行现场保存
 
 3. 分析ucore的进程切换代码，说明ucore的进程切换触发时机和进程切换的判断时机都有哪些。
-
- > schedule
-
- > proc_run
-
- > switch_to
+  > schedule
+  > proc_run
+  > switch_to
 
 4. ucore的进程控制块数据结构是如何组织的？主要字段分别表示什么？有哪些函数对它进行了修改？有哪些函数用到它？
-```
-arch_proc_struct
-mm_struct
-need_resched
-wait_state
-run_link、list_link、hash_link
-```
+  ```c
+    struct proc_struct {
+      enum proc_state state;                      // Process state
+      int pid;                                    // Process ID
+      int runs;                                   // the running times of Proces
+      uintptr_t kstack;                           // Process kernel stack
+      volatile bool need_resched;                 // bool value: need to be rescheduled to release CPU?
+      struct proc_struct *parent;                 // the parent process
+      struct mm_struct *mm;                       // Process's memory management field
+      struct context context;                     // Switch here to run process
+      struct trapframe *tf;                       // Trap frame for current interrupt
+      uintptr_t cr3;                              // CR3 register: the base addr of Page Directroy Table(PDT)
+      uint32_t flags;                             // Process flag
+      char name[PROC_NAME_LEN + 1];               // Process name
+      list_entry_t list_link;                     // Process link list 
+      list_entry_t hash_link;                     // Process hash list
+  };
+  ```
 
 ### 12.2 进程创建
 
 1. fork()的返回值是唯一的吗？父进程和子进程的返回值是不同的。请找到相应的赋值代码。
-2. 新进程创建时的进程标识是如何设置的？请指明相关代码。
+  > 子进程的返回值为0，这在copy_thread()中通过指定eax为0实现
+  
+    ```c
+    // copy_thread - setup the trapframe on the  process's kernel stack top and
+    //             - setup the kernel entry point and stack of process
+    static void
+    copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf) {
+        proc->tf = (struct trapframe *)(proc->kstack + KSTACKSIZE) - 1;
+        *(proc->tf) = *tf;
+        proc->tf->tf_regs.reg_eax = 0;
+        proc->tf->tf_esp = esp;
+        proc->tf->tf_eflags |= FL_IF;
 
- > get_pid();
+        proc->context.eip = (uintptr_t)forkret;
+        proc->context.esp = (uintptr_t)(proc->tf);
+    }
+    ```
+
+  > 父进程的返回值为子进程的pid，这在do_fork()中通过设置ret为子进程pid实现
+
+  ```c
+        ret = proc->pid;
+    fork_out:
+        return ret;
+  ```
+
+  > `proc->context.eip = (uintptr_t)forkret;`
+  ```c
+    static void
+    forkret(void) {
+        forkrets(current->tf);
+    }
+  ```
+  ```x86asm
+      .globl forkrets
+    forkrets:
+        # set stack to this new process's trapframe
+        movl 4(%esp), %esp
+        jmp __trapret
+  ```
+
+  > 所以新进程的第一条指令为`forkret()`，即调用`forkrets`通过异常返回恢复控制流现场，并正常继续执行父进程fork后的代码
+
+2. 新进程创建时的进程标识是如何设置的？请指明相关代码。
+  > get_pid();获取一个新的PID
 
 3. fork()的例子中进程标识的赋值顺序说明进程的执行顺序。
 4. 请在ucore启动时显示空闲进程（idleproc）和初始进程（initproc）的进程标识。
@@ -48,6 +93,8 @@ run_link、list_link、hash_link
 ### 12.3 进程加载
 
 1. 加载进程后，新进程进入就绪状态，它开始执行时的第一条指令的位置，在elf中保存在什么地方？在加载后，保存在什么地方？
+  
+
 2. 第一个用户进程执行的代码在哪里？它是什么时候加载到内存中的？
 
 ### 12.4 进程等待与退出
@@ -63,7 +110,7 @@ run_link、list_link、hash_link
 
 ## 小组思考题
 
-(1) (spoc)设计一个简化的进程管理子系统，可以管理并调度如下简化进程.给出了[参考代码](https://github.com/chyyuu/ucore_lab/blob/master/related_info/lab5/process-cpuio-homework.py)，请理解代码，并完成＂YOUR CODE"部分的内容．　可２个人一组
+(1) (spoc)设计一个简化的进程管理子系统，可以管理并调度支持“就绪”和“等待”状态的简化进程。给出了[参考代码](https://github.com/chyyuu/ucore_lab/blob/master/related_info/lab5/process-cpuio-homework.py)，请理解代码，并完成＂YOUR CODE"部分的内容．　可２个人一组
 
 ### 进程的状态 
 ```
