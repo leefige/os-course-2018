@@ -22,44 +22,71 @@
 ### 练习8.1 完成读文件操作的实现
 
 1. **原理简述**
-    1. 条件变量`condvar_t`
-        - 条件变量对应于一项条件及其等待队列，需要该条件变量的进程，当条件变量满足时进程继续执行；但不满足时，将进入该条件变量的等待队列并阻塞，直到条件再次满足将被唤醒
-        - 本实验中，条件变量基于信号量实现，每个条件变量包含一个信号量`sem`（拥有自己的value和等待队列，这个等待队列也就是条件变量cv的等待队列），和一个等待该条件变量的进程计数`count`，初始化时，信号量值为0；此外信号量还有一个指向宿主管程moniter的指针`owner`
-    2. 管程`moniter_t`
-        - 管程是对一组共享变量、条件变量和互斥访问函数的封装，一般为语言级特性，用于简化并行编程，相比直接使用信号量，更加模板化
-        - moniter包含以下组分：
-            - 互斥锁mutex：用于在执行任一管程内函数时控制互斥访问，其值初始化为1
-            - 条件变量数组cv：用于管程中的条件控制，可以包含若干个信号量
-            - 信号量next：用于在唤醒其他进程时锁定自身，后面会讨论其意义
-            - 计数next_count：由于发出singal而睡眠的进程个数
-        - 管程提供两个方法：
-            - `cond_wait()`：用于针对管程中某个条件变量cv，让一个进程在该条件变量不满足时阻塞在cv的等待队列中，阻塞是通过调用条件变量cv中包含的信号量sem的`down()`方法实现的；在调用`down()`之前，需要判断宿主管程的`next_count`，若其大于零，说明有其他因为唤醒当前进程而进入阻塞的进程，那么对`next`调用`up()`，直接唤醒那个进程；否则，直接对`mutex`调用`up()`，释放互斥锁，允许其他等待进入管程的进程进入
-            - `cond_signal()`：用于针对管程中某个条件变量cv，让其通知阻塞在cv的等待队列中的进程，若cv的`count`为0，说明等待队列为空，那么什么都不做；否则，通过调用条件变量cv中包含的信号量sem的`up()`方法释放该信号量（相当于通知等待该信号量的进程，将其唤醒并加入就绪队列），随后将自身阻塞在moniter的`next`
-            - 当然，上述两个方法都有可能涉及阻塞自身，那么在再次被唤醒后（即`down()`的下一条代码），需要对相应的等待计数做减一操作
-    3. 管程同步互斥控制原理：
-        - 管程的执行过程是，在定义好一个管程（包括其包含的所有条件变量）后，对任一需要用管程保护的互斥访问函数，都在其入口获取管程mt的mutex以阻止其他进程进入管程，并在结束访问的出口处释放互斥锁（注意，本实验中由于`next`的存在，不一定直接释放mutex，也有可能会释放next，这将随后说明），这就形成了管程的互斥保护模板，方便编程；进程和管程的关系有如下三种：
-            - 唯一在管程中执行被管程保护的函数的进程，它占有了互斥锁mutex
-            - 试图进入管程，但管程的mutex正被其他进程占用的进程，它们在管程外排队，处于mutex的等待队列中
-            - 已经进入管程，但在被管程保护的函数内部由于不满足条件变量而阻塞在条件变量的等待队列中的进程，它们已经“通过”了mutex，可以看作位于管程内，但并没能执行管程的函数，而是在等待被其他进入管程的进程（可能在执行，可能在其他条件变量等待队列中）唤醒
-        - 因为存在上面说到的第三种进程，即阻塞在管程内条件变量上的进程，于是出现了管程语义上的分歧：
-            - Mesa语义的管程，在用signal唤醒阻塞在条件变量的进程后，当前进程并没有立刻放弃mutex，那么可能导致在这期间由于进程调度，刚被唤醒的进程进入running态试图获取mutex继续执行，但失败，于是直接退出管程并阻塞在mutex处排队，这就让它从第一个要执行的进程变成了最后一个要执行的进程
-            - Hoare语义的管程，在用signal唤醒阻塞的进程后，当前进程并不释放互斥锁，而是通过某种方法直接将互斥访问权限“传递”给被唤醒进程，这就保证了在进程切换时若切换到刚被唤醒的进程，那么它可以直接开始执行而不会出现Mesa语义中被mutex阻塞的情况
-        - 进而可以理解本实验中`next`的作用：
-            - 当前进程发送signal时，若发现信号量有其他进程在排队，需要唤醒其他进程、并阻塞自己时，会将自己阻塞在管程的next信号量上
-            - 进程执行wait时，若发现有进程阻塞在next上，说明该进程在被唤醒时有其他进程阻塞了自身，它就在next等待队列中，那么不释放mutex，即阻止了在管程外排队获取mutex的进程进入管程，而是对next执行up，唤醒之前的进程；否则，说明已经没有进程在排队等待这个条件变量，那么直接释放mutex
-            - 类似的，在函数出管程的例行模板里，也要执行上面的判断，从而选择释放mutex还是释放next
+    1. 读写文件的实现基于对低层设备等的抽象接口，实验框架使用四个层次：最顶层为面向用户程序的接口，通过系统调用，以文件描述符为基础为用户提供文件操作；第二层为虚拟文件系统VFS，用于封装实际文件系统的实现细节，为kernel和系统调用提供文件操作接口；第三层为实际文件系统，实验中使用SFS实现；第四层为设备层，对各种不同设备（如stdin, stdout, 磁盘）等进行统一的抽象。具体到磁盘设备，本实验对磁盘做了简化处理，用block取代sector作为存储的基本单位。
+    2. lab 8中，读写文件的具体操作实现在`sfs_inode.c`中，函数为`sfs_read()`和`sfs_write()`，而它们又进一步调用了统一接口`sfs_io()`，这个函数通过一个`write`参数确定时读还是写，在内部，该函数在控制互斥的基础上，调用`sfs_io_nolock()`函数。本练习主要在该函数中实现读文件的操作
+    3. `sfs_io_nolock()`的参数包括目标buffer（读/写均使用buffer），起始字节位置offset，目标读写长度指针alenp。包含以下流程：
+        1. 计算结束位置endpos
+        2. 根据读/写类型，将两个直接操作block/buffer的函数指针分别定义为读操作/写操作
+        3. 将读取内容划分为以块为单位，这样会得到最前端不成块的部分和最尾端不成块的部分，而中间部分均为成块数据，这样对于中间部分可以直接以block为单位操作，而两端则以buffer形式操作
+        4. 按照前端buffer，中段blocks和后端buffer顺序，分别将字节流读入目标buffer中（或从目标buffer写入文件），计算实际读/写字节数，最后返回这个数量
 2. **实现方法**
-    1. 实现`cond_signal()`：根据上述原理及相关注释，实现如下：
-        ```c
-        if(cvp->count > 0) {
-            monitor_t * mt = cvp->owner;
-            mt->next_count ++;
-            up(&(cvp->sem));
-            down(&(mt->next));
-            // after woken up
-            mt->next_count--;
-        }
-        ```
+    - 主要是实现上述按照三个部分分别操作的流程：
+        1. 最前端的buffer
+            ```c
+            // (1) If offset isn't aligned with the first block, Rd/Wr some content from offset to the end of the first block
+            blkoff = offset % SFS_BLKSIZE;
+            if (blkoff != 0) {
+                // Rd/Wr size = (nblks != 0) ? (SFS_BLKSIZE - blkoff) : (endpos - offset)
+                size = (nblks != 0) ? (SFS_BLKSIZE - blkoff) : (endpos - offset);
+                if ((ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino)) != 0) {
+                    goto out;
+                }
+                if ((ret = sfs_buf_op(sfs, buf, size, ino, blkoff)) != 0) {
+                    goto out;
+                }
+                alen += size;
+                // if nothing left
+                if (nblks == 0) {
+                    goto out;
+                }
+                // else, update buf pos
+                buf += size;
+                blkno++;
+                nblks--;
+            }
+            ```
+        2. 中部的blocks
+            ```c
+            // (2) Rd/Wr aligned blocks 
+            size = SFS_BLKSIZE;
+            while (nblks > 0) {
+                if ((ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino)) != 0) {
+                    goto out;
+                }
+                if ((ret = sfs_block_op(sfs, buf, ino, 1)) != 0) {
+                    goto out;
+                }
+                alen += size;
+                // update buf pos
+                buf += size;
+                blkno++;
+                nblks--;
+            }
+            ```
+        3. 后端的buffer
+            ```c
+            // (3) If end position isn't aligned with the last block, Rd/Wr some content from begin to the (endpos % SFS_BLKSIZE) of the last block
+            size = endpos % SFS_BLKSIZE;
+            if (size != 0) {
+                if ((ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino)) != 0) {
+                    goto out;
+                }
+                if ((ret = sfs_buf_op(sfs, buf, size, ino, 0)) != 0) {
+                    goto out;
+                }
+                alen += size;
+            }
+            ```
 3. **回答问题**
     - 设计实现”UNIX的PIPE机制“的概要设方案
         > - 类似前面的信号量，可以直接使用已经实现的内核条件变量机制，将其封装为syscall，提供给用户系统调用接口
