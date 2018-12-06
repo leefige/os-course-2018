@@ -17,6 +17,12 @@
 - 李逸飞-2015010062-lab7-20180520-161641-leefige-lab7
 - 李逸飞-2015010062-lab8-20180522-202818-leefige-lab8
 
+## 关于boot的一些文章
+
+[基于Intel 80×86 CPU的IBM PC及其兼容计算机的启动流程](https://yq.aliyun.com/articles/15221)
+
+[计算机是如何启动的？](https://www.ruanyifeng.com/blog/2013/02/booting.html)
+
 ## 我的某个piazza回答
 
 [关于x-86访问时特权级的问题](https://piazza.com/class/i5j09fnsl7k5x0?cid=1009)
