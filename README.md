@@ -21,7 +21,9 @@
 
 [基于Intel 80×86 CPU的IBM PC及其兼容计算机的启动流程](https://yq.aliyun.com/articles/15221)
 
-[计算机是如何启动的？](https://www.ruanyifeng.com/blog/2013/02/booting.html)
+[计算机是如何启动的？-阮一峰](https://www.ruanyifeng.com/blog/2013/02/booting.html)
+
+[计算机启动过程详细介绍](http://www.360doc.com/content/06/0810/13/561_177979.shtml)
 
 ## 我的某个piazza回答
 
