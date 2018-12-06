@@ -16,3 +16,7 @@
 - 李逸飞-2015010062-lab6-20180505-213159-leefige-lab6
 - 李逸飞-2015010062-lab7-20180520-161641-leefige-lab7
 - 李逸飞-2015010062-lab8-20180522-202818-leefige-lab8
+
+## 我的某个piazza回答
+
+[关于x-86访问时特权级的问题](https://piazza.com/class/i5j09fnsl7k5x0?cid=1009)
